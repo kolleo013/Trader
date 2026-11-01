@@ -1,0 +1,29 @@
+# Виртуальное окружение
+venv/
+__pycache__/
+*.pyc
+src/__pycache__/
+
+# Данные
+data/*.csv
+
+# Модели
+models/*.pkl
+
+# База данных
+trading_data.db
+
+# Секреты
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Логи
+*.log
+trading_log.txt

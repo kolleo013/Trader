@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Trading Bot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Боковая панель -->
+        <aside class="sidebar">
+            <div class="logo">
+                <i class="fas fa-robot"></i>
+                <h1>AI Trading Bot</h1>
+            </div>
+            
+            <div class="nav">
+                <button class="nav-btn active" data-tab="dashboard">
+                    <i class="fas fa-chart-line"></i> Дашборд
+                </button>
+                <button class="nav-btn" data-tab="screener">
+                    <i class="fas fa-search-dollar"></i> Скринер
+                </button>
+                <button class="nav-btn" data-tab="trades">
+                    <i class="fas fa-exchange-alt"></i> Сделки
+                </button>
+            </div>
+            
+            <div class="ticker-selector">
+                <label>Выберите акцию:</label>
+                <select id="tickerSelect"></select>
+            </div>
+            
+            <div class="settings">
+                <label>Горизонт прогноза: <span id="forecastVal">8</span>ч</label>
+                <input type="range" id="forecastRange" min="4" max="24" value="8">
+                
+                <label>Мин. уверенность: <span id="confidenceVal">60</span>%</label>
+                <input type="range" id="confidenceRange" min="50" max="90" value="60">
+            </div>
+            
+            <button class="refresh-btn" id="refreshBtn">
+                <i class="fas fa-sync-alt"></i> Обновить
+            </button>
+        </aside>
+        
+        <!-- Основной контент -->
+        <main class="main-content">
+            <!-- Дашборд -->
+            <div class="tab-content active" id="dashboard">
+                <div class="header">
+                    <h2 id="dashboardTitle">Дашборд: SBER</h2>
+                    <div class="time" id="currentTime"></div>
+                </div>
+                
+                <!-- Метрики -->
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-label"><i class="fas fa-wallet"></i> Баланс</div>
+                        <div class="metric-value" id="balance">1,000,000₽</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label"><i class="fas fa-chart-bar"></i> Сделок</div>
+                        <div class="metric-value" id="totalTrades">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label"><i class="fas fa-bullseye"></i> Win Rate</div>
+                        <div class="metric-value" id="winRate">0%</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label"><i class="fas fa-coins"></i> Прибыль</div>
+                        <div class="metric-value" id="totalProfit">0₽</div>
+                    </div>
+                </div>
+                
+                <!-- Графики -->
+                <div class="chart-tabs">
+                    <button class="chart-tab active" data-timeframe="1d">1D (Дневной)</button>
+                    <button class="chart-tab" data-timeframe="1h">1H (Часовой)</button>
+                </div>
+                
+                <div class="chart-container">
+                    <div id="priceChart" class="chart"></div>
+                    <div id="rsiChart" class="chart"></div>
+                    <div id="macdChart" class="chart"></div>
+                    <div id="volumeChart" class="chart"></div>
+                </div>
+                
+                <!-- Индикаторы -->
+                <div class="signals-section">
+                    <h3><i class="fas fa-signal"></i> Сигналы индикаторов</h3>
+                    <div class="signals-grid">
+                        <div class="signal-block" id="signals1d">
+                            <h4>📅 1 День (1D)</h4>
+                            <div class="signal-metrics"></div>
+                            <div class="signal-details"></div>
+                        </div>
+                        <div class="signal-block" id="signals1h">
+                            <h4>⏰ 1 Час (1H)</h4>
+                            <div class="signal-metrics"></div>
+                            <div class="signal-details"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Итоговый прогноз -->
+                <div class="final-forecast">
+                    <h3><i class="fas fa-brain"></i> Итоговый прогноз</h3>
+                    <div class="gauge-container">
+                        <div class="gauge" id="gauge">
+                            <div class="gauge-fill" id="gaugeFill"></div>
+                            <div class="gauge-value" id="gaugeValue">0</div>
+                        </div>
+                    </div>
+                    <div class="forecast-recommendation" id="forecastRec"></div>
+                </div>
+            </div>
+            
+            <!-- Скринер -->
+            <div class="tab-content" id="screener">
+                <div class="header">
+                    <h2><i class="fas fa-search-dollar"></i> Скринер рынка</h2>
+                    <button class="scan-btn" id="scanBtn">
+                        <i class="fas fa-radar"></i> Сканировать рынок
+                    </button>
+                </div>
+                
+                <div class="screener-table-container">
+                    <table class="screener-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Тикер</th>
+                                <th>Score</th>
+                                <th>Прогноз 1D</th>
+                                <th>Прогноз 1H</th>
+                                <th>RSI</th>
+                                <th>Цена</th>
+                                <th>ИИ</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="screenerBody"></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Сделки -->
+            <div class="tab-content" id="trades">
+                <div class="header">
+                    <h2><i class="fas fa-exchange-alt"></i> История сделок</h2>
+                </div>
+                <div class="trades-container">
+                    <table class="trades-table">
+                        <thead>
+                            <tr>
+                                <th>Дата</th>
+                                <th>Тикер</th>
+                                <th>Действие</th>
+                                <th>Цена</th>
+                                <th>Кол-во</th>
+                                <th>Стратегия</th>
+                                <th>Статус</th>
+                                <th>Прибыль</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradesBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- Модальное окно -->
+    <div class="modal" id="modal">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
