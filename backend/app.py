@@ -211,11 +211,5 @@ def get_screener():
         print(f"❌ Ошибка в screener: {e}")
         return jsonify({'error': str(e)}), 500
 
-# API: статистика бота
-@app.route('/api/stats')
-def get_stats():
-    stats = db.get_trade_stats()
-    return jsonify(stats)
-
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)
