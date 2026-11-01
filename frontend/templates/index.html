@@ -3,19 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Trading Bot</title>
+    <title>AI Trading Bot — Умный трейдинг</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
+    <!-- Частицы -->
+    <div class="particles" id="particles"></div>
+
+    <!-- Toast уведомления -->
+    <div class="toast-container" id="toastContainer"></div>
+
     <div class="app">
         <!-- Боковая панель -->
         <aside class="sidebar">
             <div class="logo">
-                <i class="fas fa-robot"></i>
+                <div class="logo-icon">
+                    <i class="fas fa-robot"></i>
+                </div>
                 <h1>AI Trading Bot</h1>
             </div>
-            
+
             <div class="nav">
                 <button class="nav-btn active" data-tab="dashboard">
                     <i class="fas fa-chart-line"></i> Дашборд
@@ -27,68 +38,105 @@
                     <i class="fas fa-exchange-alt"></i> Сделки
                 </button>
             </div>
-            
+
             <div class="ticker-selector">
                 <label>Выберите акцию:</label>
                 <select id="tickerSelect"></select>
             </div>
-            
+
             <div class="settings">
-                <label>Горизонт прогноза: <span id="forecastVal">8</span>ч</label>
+                <label>Горизонт прогноза: <span id="forecastVal" class="accent-val">8</span>ч</label>
                 <input type="range" id="forecastRange" min="4" max="24" value="8">
-                
-                <label>Мин. уверенность: <span id="confidenceVal">60</span>%</label>
+            </div>
+
+            <div class="settings">
+                <label>Мин. уверенность: <span id="confidenceVal" class="accent-val">60</span>%</label>
                 <input type="range" id="confidenceRange" min="50" max="90" value="60">
             </div>
-            
+
             <button class="refresh-btn" id="refreshBtn">
                 <i class="fas fa-sync-alt"></i> Обновить
             </button>
+
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <div class="pulse-dot" style="background: var(--green); color: var(--green);"></div>
+                    <span>Система активна</span>
+                </div>
+            </div>
         </aside>
-        
+
         <!-- Основной контент -->
         <main class="main-content">
             <!-- Дашборд -->
             <div class="tab-content active" id="dashboard">
                 <div class="header">
-                    <h2 id="dashboardTitle">Дашборд: SBER</h2>
-                    <div class="time" id="currentTime"></div>
+                    <h2 id="dashboardTitle">Дашборд: <span class="ticker-highlight">SBER</span></h2>
+                    <div class="time-display">
+                        <div class="time-dot"></div>
+                        <span id="currentTime"></span>
+                    </div>
                 </div>
-                
+
                 <!-- Метрики -->
                 <div class="metrics-grid">
                     <div class="metric-card">
-                        <div class="metric-label"><i class="fas fa-wallet"></i> Баланс</div>
+                        <div class="metric-icon" style="background: rgba(41,98,255,0.15); color: var(--accent);">
+                            <i class="fas fa-wallet"></i>
+                        </div>
+                        <div class="metric-label">Баланс</div>
                         <div class="metric-value" id="balance">1,000,000₽</div>
+                        <div class="metric-change positive">
+                            <i class="fas fa-arrow-up"></i> +12.7%
+                        </div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-label"><i class="fas fa-chart-bar"></i> Сделок</div>
+                        <div class="metric-icon" style="background: rgba(0,208,132,0.15); color: var(--green);">
+                            <i class="fas fa-chart-bar"></i>
+                        </div>
+                        <div class="metric-label">Сделок</div>
                         <div class="metric-value" id="totalTrades">0</div>
+                        <div class="metric-change positive">
+                            <i class="fas fa-arrow-up"></i> +5 сегодня
+                        </div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-label"><i class="fas fa-bullseye"></i> Win Rate</div>
+                        <div class="metric-icon" style="background: rgba(255,165,2,0.15); color: var(--orange);">
+                            <i class="fas fa-bullseye"></i>
+                        </div>
+                        <div class="metric-label">Win Rate</div>
                         <div class="metric-value" id="winRate">0%</div>
+                        <div class="metric-change positive">
+                            <i class="fas fa-arrow-up"></i> +2.3%
+                        </div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-label"><i class="fas fa-coins"></i> Прибыль</div>
-                        <div class="metric-value" id="totalProfit">0₽</div>
+                        <div class="metric-icon" style="background: rgba(0,208,132,0.15); color: var(--green);">
+                            <i class="fas fa-coins"></i>
+                        </div>
+                        <div class="metric-label">Прибыль</div>
+                        <div class="metric-value profit" id="totalProfit">0₽</div>
+                        <div class="metric-change positive">
+                            <i class="fas fa-arrow-up"></i> +8.2% за неделю
+                        </div>
                     </div>
                 </div>
-                
-                <!-- Графики -->
+
+                <!-- Табы графиков -->
                 <div class="chart-tabs">
                     <button class="chart-tab active" data-timeframe="1d">1D (Дневной)</button>
                     <button class="chart-tab" data-timeframe="1h">1H (Часовой)</button>
                 </div>
-                
+
+                <!-- Графики -->
                 <div class="chart-container">
                     <div id="priceChart" class="chart"></div>
                     <div id="rsiChart" class="chart"></div>
                     <div id="macdChart" class="chart"></div>
                     <div id="volumeChart" class="chart"></div>
                 </div>
-                
-                <!-- Индикаторы -->
+
+                <!-- Сигналы -->
                 <div class="signals-section">
                     <h3><i class="fas fa-signal"></i> Сигналы индикаторов</h3>
                     <div class="signals-grid">
@@ -104,7 +152,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Итоговый прогноз -->
                 <div class="final-forecast">
                     <h3><i class="fas fa-brain"></i> Итоговый прогноз</h3>
@@ -117,16 +165,15 @@
                     <div class="forecast-recommendation" id="forecastRec"></div>
                 </div>
             </div>
-            
+
             <!-- Скринер -->
             <div class="tab-content" id="screener">
                 <div class="header">
                     <h2><i class="fas fa-search-dollar"></i> Скринер рынка</h2>
                     <button class="scan-btn" id="scanBtn">
-                        <i class="fas fa-radar"></i> Сканировать рынок
+                        <i class="fas fa-satellite-dish"></i> Сканировать рынок
                     </button>
                 </div>
-                
                 <div class="screener-table-container">
                     <table class="screener-table">
                         <thead>
@@ -146,7 +193,33 @@
                     </table>
                 </div>
             </div>
-    
+
+            <!-- Сделки -->
+            <div class="tab-content" id="trades">
+                <div class="header">
+                    <h2><i class="fas fa-exchange-alt"></i> История сделок</h2>
+                </div>
+                <div class="screener-table-container">
+                    <table class="trades-table">
+                        <thead>
+                            <tr>
+                                <th>Дата</th>
+                                <th>Тикер</th>
+                                <th>Тип</th>
+                                <th>Цена входа</th>
+                                <th>Цена выхода</th>
+                                <th>Объём</th>
+                                <th>P&L</th>
+                                <th>Статус</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradesBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
     <!-- Модальное окно -->
     <div class="modal" id="modal">
         <div class="modal-content">
@@ -154,7 +227,7 @@
             <div id="modalBody"></div>
         </div>
     </div>
-    
+
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
