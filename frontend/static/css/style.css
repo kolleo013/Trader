@@ -372,91 +372,80 @@ body {
   .section-header { flex-direction: column; align-items: flex-start; }
 }
 
-/* Принудительно делаем новости видимыми */
-.news-feed {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 12px !important;
-  margin-top: 22px !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-}
-
+/* Принудительная видимость и размеры для новостей */
 .news-item {
-  display: flex !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  color: var(--text-primary) !important;
-  background: var(--bg-secondary) !important;
-  padding: 18px !important;
-  border-radius: var(--radius-sm) !important;
-  border-left: 3px solid var(--border-color) !important;
-  margin-bottom: 12px !important;
   min-height: 80px !important;
+  padding: 18px !important;
+  border: 1px solid var(--border-color) !important;
 }
-
-.news-item.positive { border-left-color: var(--accent-green) !important; }
-.news-item.negative { border-left-color: var(--accent-red) !important; }
-.news-item.neutral { border-left-color: var(--accent-orange) !important; }
 
 .news-content {
-  flex: 1 !important;
-  color: var(--text-primary) !important;
+  display: block !important;
   visibility: visible !important;
   opacity: 1 !important;
 }
 
 .news-title {
+  display: block !important;
   font-size: 15px !important;
   font-weight: 600 !important;
   color: var(--text-primary) !important;
   margin-bottom: 8px !important;
-  line-height: 1.4 !important;
   visibility: visible !important;
-  opacity: 1 !important;
 }
 
 .news-desc {
+  display: block !important;
   font-size: 13px !important;
   color: var(--text-secondary) !important;
-  line-height: 1.6 !important;
+  line-height: 1.5 !important;
   visibility: visible !important;
-  opacity: 1 !important;
 }
 
 .sentiment-badge {
   display: inline-block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
+  padding: 2px 8px !important;
   font-size: 11px !important;
   font-weight: 700 !important;
-  padding: 2px 8px !important;
   border-radius: 4px !important;
+  visibility: visible !important;
 }
 
-.sentiment-badge.positive { 
-  background: var(--accent-green-bg) !important; 
-  color: var(--accent-green) !important; 
+.sentiment-badge.positive {
+  background: rgba(0, 208, 132, 0.1) !important;
+  color: #00d084 !important;
 }
-.sentiment-badge.negative { 
-  background: var(--accent-red-bg) !important; 
-  color: var(--accent-red) !important; 
+
+.sentiment-badge.negative {
+  background: rgba(255, 71, 87, 0.1) !important;
+  color: #ff4757 !important;
 }
-.sentiment-badge.neutral { 
-  background: rgba(255, 165, 2, 0.1) !important; 
-  color: var(--accent-orange) !important; 
+
+.sentiment-badge.neutral {
+  background: rgba(255, 165, 2, 0.1) !important;
+  color: #ffa502 !important;
 }
 
 .news-ticker-tag {
   display: inline-block !important;
-  visibility: visible !important;
   font-family: var(--font-mono) !important;
   font-size: 11px !important;
   font-weight: 700 !important;
-  color: var(--accent-blue) !important;
-  background: var(--accent-blue-bg) !important;
+  color: #2962ff !important;
+  background: rgba(41, 98, 255, 0.1) !important;
   padding: 3px 10px !important;
   border-radius: 6px !important;
-  border: 1px solid rgba(41, 98, 255, 0.2) !important;
   margin-right: 4px !important;
+}
+
+/* Отключаем анимацию fadeIn для новостей — они должны быть видны сразу */
+.news-item {
+  opacity: 1 !important;
+  transform: none !important;
+  animation: none !important;
+}
+
+.news-feed-section.reveal {
+  opacity: 1 !important;
+  transform: none !important;
 }
