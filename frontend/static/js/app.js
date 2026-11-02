@@ -79,15 +79,26 @@ function showError(message) {
 function initNavigation() {
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active');
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
       const tab = btn.dataset.tab;
-      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active')); document.getElementById(tab).classList.add('active');
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.getElementById(tab).classList.add('active');
       state.currentTab = tab;
-      if (tab === 'screener') loadScreenerData(); if (tab === 'news') loadNewsData();
+      
+      if (tab === 'screener') loadScreenerData();
+      if (tab === 'news') {
+        console.log('🔄 Переключение на вкладку Новости');
+        loadNewsData();
+      }
       setTimeout(initRevealAnimations, 100);
     });
   });
-  document.querySelectorAll('.menu-toggle').forEach(btn => { btn.addEventListener('click', () => { document.querySelector('.sidebar').classList.toggle('open'); }); });
+  document.querySelectorAll('.menu-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelector('.sidebar').classList.toggle('open');
+    });
+  });
 }
 
 function initTimeframeSelector() {
@@ -136,8 +147,17 @@ async function loadScreenerData() {
 }
 
 async function loadNewsData() {
-  try { const data = await fetchAPI('/api/news'); state.newsData = data; renderNews(data); }
-  catch (err) { console.error('Ошибка новостей:', err); showError('Не удалось загрузить новости'); }
+  try {
+    console.log('📡 Загрузка новостей...');
+    const data = await fetchAPI('/api/news');
+    console.log('📰 Получено новостей:', data?.length || 0);
+    
+    state.newsData = data || [];
+    renderNews(state.newsData);
+  } catch (err) {
+    console.error('❌ Ошибка загрузки новостей:', err);
+    showError('Не удалось загрузить новости');
+  }
 }
 
 function adjustColor(hex, amount) {
@@ -200,6 +220,13 @@ function updateDashboard(data) {
   else { scoreLabel.className = 'score-label'; scoreLabel.innerHTML = '<i class="fas fa-minus"></i> Нейтральный сигнал'; }
   
   updateIndicators('1d', data.signals_1d); updateIndicators('1h', data.signals_1h); updateRecommendation(data);
+
+    updateIndicators('1d', data.signals_1d);
+  updateIndicators('1h', data.signals_1h);
+  updateRecommendation(data);
+  
+  // НОВОЕ: Загружаем новости для конкретной акции
+  loadTickerNews(state.currentTicker);
 }
 
 function updateIndicators(tf, signals) {
@@ -444,32 +471,103 @@ function updateQuickOverview() {
 }
 
 function renderNews(data) {
-  const feed = document.getElementById('newsFeed'); if (!feed) return;
-  if (!data || data.length === 0) { feed.innerHTML = '<div style="text-align: center; padding: 40px; color: #848e9c;">Нет новостей</div>'; return; }
-  const positive = data.filter(n => n.sentiment === 'positive').length, negative = data.filter(n => n.sentiment === 'negative').length, neutral = data.filter(n => n.sentiment === 'neutral').length;
-  const posEl = document.getElementById('positiveNews'), negEl = document.getElementById('negativeNews'), neuEl = document.getElementById('neutralNews');
-  if (posEl) posEl.textContent = positive; if (negEl) negEl.textContent = negative; if (neuEl) neuEl.textContent = neutral;
-  feed.innerHTML = data.map(news => {
-    const sentimentClass = news.sentiment || 'neutral';
-    const sentimentLabel = sentimentClass === 'positive' ? '📈 Позитив' : sentimentClass === 'negative' ? '📉 Негатив' : '⚖️ Нейтрально';
-    const sentimentColor = sentimentClass === 'positive' ? '#00d084' : sentimentClass === 'negative' ? '#ff4757' : '#ffa502';
-    const tickers = news.affects || []; const tickersHTML = tickers.map(t => `<span class="news-ticker-tag">${t}</span>`).join('');
-    return `
-      <div class="news-item ${sentimentClass}">
-        <div class="news-content">
-          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap;">
-            <span style="color: ${sentimentColor}; font-weight: 700; font-size: 13px;">${sentimentLabel}</span>
-            <span style="color: #5e6673; font-size: 12px;">${news.source || ''}</span>
-            <span style="color: #5e6673; font-size: 12px;">•</span>
-            <span style="color: #5e6673; font-size: 12px;">${news.time_ago || ''}</span>
+  const feed = document.getElementById('newsFeed');
+  if (!feed) {
+    console.error('❌ Элемент newsFeed не найден!');
+    return;
+  }
+  
+  if (!data || data.length === 0) {
+    feed.innerHTML = '<div style="text-align: center; padding: 40px; color: #848e9c;">Нет новостей</div>';
+    return;
+  }
+  
+  console.log('🎨 Рендеринг', data.length, 'новостей');
+  
+  const positive = data.filter(n => n.sentiment === 'positive').length;
+  const negative = data.filter(n => n.sentiment === 'negative').length;
+  const neutral = data.filter(n => n.sentiment === 'neutral').length;
+  
+  const posEl = document.getElementById('positiveNews');
+  const negEl = document.getElementById('negativeNews');
+  const neuEl = document.getElementById('neutralNews');
+  if (posEl) posEl.textContent = positive;
+  if (negEl) negEl.textContent = negative;
+  if (neuEl) neuEl.textContent = neutral;
+  
+  try {
+    feed.innerHTML = data.map((news, index) => {
+      const sentimentClass = news.sentiment || 'neutral';
+      const sentimentText = news.sentiment_text || (sentimentClass === 'positive' ? 'Позитив' : sentimentClass === 'negative' ? 'Негатив' : 'Нейтрально');
+      const sentimentScore = news.sentiment_score || 0;
+      const scoreDisplay = sentimentScore > 0 ? `+${sentimentScore}` : sentimentScore;
+      
+      const tickers = news.affects || [];
+      const tickersHTML = tickers.map(t => `<span class="news-ticker-tag">${t}</span>`).join('');
+      
+      return `
+        <div class="news-item ${sentimentClass}" style="animation: fadeIn 0.3s ease ${index * 0.05}s both;">
+          <div class="news-content">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap;">
+              <span class="sentiment-badge ${sentimentClass}">${sentimentText} (${scoreDisplay})</span>
+              <span style="color: #5e6673; font-size: 12px;">${news.source || ''}</span>
+              <span style="color: #5e6673; font-size: 12px;">•</span>
+              <span style="color: #5e6673; font-size: 12px;">${news.time_ago || ''}</span>
+            </div>
+            <a href="${news.link || '#'}" target="_blank" class="news-title" style="text-decoration: none; color: inherit; display: block;">${news.title || 'Без заголовка'}</a>
+            <div class="news-desc">${news.description || ''}</div>
+            ${tickers.length > 0 ? `<div style="margin-top: 10px; font-size: 12px; color: #5e6673;">Влияет на: ${tickersHTML}</div>` : ''}
           </div>
-          <div class="news-title">${news.title}</div>
-          <div class="news-desc">${news.description}</div>
-          ${tickers.length > 0 ? `<div style="margin-top: 12px; font-size: 12px; color: #5e6673;">Влияет на: ${tickersHTML}</div>` : ''}
         </div>
-      </div>
-    `;
-  }).join('');
+      `;
+    }).join('');
+    
+    console.log('✅ Новости отрендерены');
+  } catch (err) {
+    console.error('❌ Ошибка рендеринга новостей:', err);
+    feed.innerHTML = `<div style="text-align: center; padding: 40px; color: #ff4757;">Ошибка отображения: ${err.message}</div>`;
+  }
+}
+
+async function loadTickerNews(ticker) {
+  const feed = document.getElementById('tickerNewsFeed');
+  const nameEl = document.getElementById('tickerNewsName');
+  if (!feed || !nameEl) return;
+  
+  nameEl.textContent = ticker;
+  feed.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-secondary);"><i class="fas fa-spinner fa-spin"></i> Анализ новостного фона...</div>';
+  
+  try {
+    const data = await fetchAPI(`/api/ticker/${ticker}/news`);
+    
+    if (!data || data.length === 0) {
+      feed.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-muted);">Прямых новостей по этому тикеру за последние часы не найдено. ИИ опирается на технические данные.</div>';
+      return;
+    }
+    
+    feed.innerHTML = data.map(news => {
+      const sentimentClass = news.sentiment || 'neutral';
+      const tickersHTML = news.affects.map(t => `<span class="news-ticker-tag">${t}</span>`).join('');
+      
+      return `
+        <div class="ticker-news-item ${sentimentClass}">
+          <div class="ticker-news-content">
+            <a href="${news.link}" target="_blank" class="ticker-news-title">${news.title}</a>
+            <div class="ticker-news-desc">${news.description}</div>
+            <div class="ticker-news-meta">
+              <span class="sentiment-badge ${sentimentClass}">${news.sentiment_text} (${news.sentiment_score > 0 ? '+' : ''}${news.sentiment_score})</span>
+              <span style="font-size: 12px; color: var(--text-muted);">${news.source} • ${news.time_ago}</span>
+              ${tickersHTML ? `<span style="font-size: 12px; color: var(--text-muted); margin-left: auto;">Влияет на: ${tickersHTML}</span>` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+  } catch (err) {
+    console.error('Ошибка загрузки новостей тикера:', err);
+    feed.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--accent-red);">Не удалось загрузить новости</div>';
+  }
 }
 
 window.selectTicker = selectTicker;

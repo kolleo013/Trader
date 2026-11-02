@@ -3,6 +3,7 @@ import sys
 import pandas as pd
 from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
+from news_analyzer import fetch_all_news
 from dotenv import load_dotenv
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -423,9 +424,51 @@ def get_screener():
         print(f"❌ Ошибка в screener: {e}")
         return jsonify({'error': str(e)}), 500
 
+_cached_news = None
+_last_news_update = 0
+
 @app.route('/api/news')
 def get_news():
-    return jsonify(DEMO_NEWS)
+    global _cached_news, _last_news_update
+    import time
+    current_time = time.time()
+    
+    # Кэшируем на 15 минут
+    if _cached_news is None or (current_time - _last_news_update) > 900:
+        try:
+            print("\n" + "="*60)
+            print("📡 ЗАГРУЗКА НОВОСТЕЙ...")
+            print("="*60)
+            _cached_news = fetch_all_news(limit=150)
+            _last_news_update = current_time
+            print(f"\n✅ ВСЕГО ЗАГРУЖЕНО: {len(_cached_news)} новостей")
+            print(f"   Позитивных: {len([n for n in _cached_news if n['sentiment'] == 'positive'])}")
+            print(f"   Негативных: {len([n for n in _cached_news if n['sentiment'] == 'negative'])}")
+            print(f"   Нейтральных: {len([n for n in _cached_news if n['sentiment'] == 'neutral'])}")
+            print("="*60 + "\n")
+        except Exception as e:
+            print(f"❌ Критическая ошибка: {e}")
+            import traceback
+            traceback.print_exc()
+            _cached_news = []
+            
+    return jsonify(_cached_news)
+
+@app.route('/api/ticker/<ticker>/news')
+def get_ticker_news(ticker):
+    """Новости по конкретному тикеру"""
+    global _cached_news
+    
+    if not _cached_news:
+        # Если кэш пуст — загружаем
+        _cached_news = fetch_all_news(limit=150)
+    
+    ticker_news = [news for news in _cached_news if ticker in news.get('affects', [])]
+    ticker_news.sort(key=lambda x: abs(x.get('sentiment_score', 0)), reverse=True)
+    
+    print(f"📰 Новости для {ticker}: найдено {len(ticker_news)}")
+    
+    return jsonify(ticker_news[:10])
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)
