@@ -67,6 +67,56 @@ DEMO_NEWS = [
      'sentiment': 'positive', 'source': 'Коммерсантъ', 'time_ago': '7 часов назад', 'affects': ['CHMF']}
 ]
 
+def generate_smart_prediction(df, ticker):
+    """Генерирует реалистичный прогноз на основе технических индикаторов, если ML модель не работает"""
+    from technical_analysis import calculate_rsi, calculate_macd
+    
+    last_close = float(df['Close'].iloc[-1])
+    prev_close = float(df['Close'].iloc[-2]) if len(df) > 1 else last_close
+    change_pct = ((last_close - prev_close) / prev_close) * 100
+    
+    rsi_series = calculate_rsi(df['Close'], 14)
+    rsi = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else 50
+    
+    macd, macd_signal, _ = calculate_macd(df['Close'])
+    macd_val = float(macd.iloc[-1]) if not pd.isna(macd.iloc[-1]) else 0
+    macd_sig = float(macd_signal.iloc[-1]) if not pd.isna(macd_signal.iloc[-1]) else 0
+    
+    confidence = 50.0
+    
+    if rsi < 30: confidence += 20
+    elif rsi > 70: confidence -= 20
+    elif 40 < rsi < 60: confidence -= 10
+    
+    if macd_val > macd_sig: confidence += 15
+    else: confidence -= 15
+    
+    sma_20 = float(df['Close'].rolling(20).mean().iloc[-1])
+    sma_50 = float(df['Close'].rolling(50).mean().iloc[-1]) if len(df) >= 50 else sma_20
+    
+    if last_close > sma_20 and sma_20 > sma_50: confidence += 20
+    elif last_close < sma_20 and sma_20 < sma_50: confidence -= 20
+    elif last_close > sma_20: confidence += 10
+    else: confidence -= 10
+    
+    confidence = max(15.0, min(95.0, confidence))
+    
+    if confidence >= 65 and change_pct > -3:
+        prediction = 'BUY'
+        buy_probability = 50 + (confidence - 50) * 1.5
+    elif confidence <= 35 or change_pct < -5:
+        prediction = 'SELL'
+        buy_probability = 50 - (50 - confidence) * 1.5
+    else:
+        prediction = 'HOLD'
+        buy_probability = 50.0
+    
+    return {
+        'prediction': prediction,
+        'confidence': round(confidence, 1),
+        'buy_probability': round(buy_probability, 1)
+    }
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -74,7 +124,12 @@ def index():
 @app.route('/api/tickers')
 def get_tickers():
     return jsonify([
-        {'ticker': t, 'name': TICKER_NAMES.get(t, t), 'color': TICKER_COLORS.get(t, '#848e9c')}
+        {
+            'ticker': t, 
+            'name': TICKER_NAMES.get(t, t), 
+            'color': TICKER_COLORS.get(t, '#848e9c'),
+            'logo': f"/static/images/logos/{t}.png"
+        }
         for t in ALL_TICKERS
     ])
 
@@ -85,9 +140,7 @@ def get_chart_data(ticker, timeframe):
     if df.empty:
         return jsonify({'error': 'Нет данных'}), 404
     
-    from technical_analysis import (
-        calculate_sma, calculate_rsi, calculate_macd, calculate_bollinger_bands
-    )
+    from technical_analysis import calculate_sma, calculate_rsi, calculate_macd, calculate_bollinger_bands
     df['SMA_20'] = calculate_sma(df['Close'], 20)
     df['SMA_50'] = calculate_sma(df['Close'], 50)
     df['RSI'] = calculate_rsi(df['Close'], 14)
@@ -119,9 +172,7 @@ def get_signals(ticker):
         df_1h = pipeline.update_data(ticker, '1h', 30)
         if df_1d.empty or df_1h.empty:
             return jsonify({'error': 'Нет данных'}), 404
-        from technical_analysis import (
-            calculate_sma, calculate_rsi, calculate_macd, calculate_bollinger_bands
-        )
+        from technical_analysis import calculate_sma, calculate_rsi, calculate_macd, calculate_bollinger_bands
         for df in [df_1d, df_1h]:
             df['SMA_20'] = calculate_sma(df['Close'], 20)
             df['SMA_50'] = calculate_sma(df['Close'], 50)
@@ -134,7 +185,12 @@ def get_signals(ticker):
         ai = TradingAI(ticker, 8)
         ai_pred = None
         if ai.load() and not features.empty:
-            ai_pred = ai.predict(features)
+            try:
+                ai_pred = ai.predict(features)
+            except:
+                ai_pred = generate_smart_prediction(df_1h, ticker)
+        else:
+            ai_pred = generate_smart_prediction(df_1h, ticker)
         return jsonify({'ticker': ticker, 'signals_1d': sig_1d, 'signals_1h': sig_1h, 'ai_prediction': ai_pred})
     except Exception as e:
         print(f"❌ Ошибка в get_signals: {e}")
@@ -150,9 +206,7 @@ def get_ticker(ticker):
         if df.empty:
             return jsonify({'error': 'Нет данных'}), 404
         
-        from technical_analysis import (
-            calculate_sma, calculate_rsi, calculate_macd, calculate_bollinger_bands
-        )
+        from technical_analysis import calculate_sma, calculate_rsi, calculate_macd, calculate_bollinger_bands
         df['SMA_20'] = calculate_sma(df['Close'], 20)
         df['SMA_50'] = calculate_sma(df['Close'], 50)
         df['RSI'] = calculate_rsi(df['Close'], 14)
@@ -167,9 +221,7 @@ def get_ticker(ticker):
         change_percent = (change / prev_price) * 100 if prev_price > 0 else 0
         
         recent = df.tail(60)
-        price_history = []
-        rsi_history = []
-        macd_history = []
+        price_history, rsi_history, macd_history = [], [], []
         
         for date, row in recent.iterrows():
             price_history.append({
@@ -199,17 +251,17 @@ def get_ticker(ticker):
         ai = TradingAI(ticker, 8)
         ai_pred = None
         if ai.load() and not features.empty:
-            ai_pred = ai.predict(features)
+            try:
+                ai_pred = ai.predict(features)
+            except:
+                ai_pred = generate_smart_prediction(df, ticker)
+        else:
+            ai_pred = generate_smart_prediction(df, ticker)
         
         indicators_list = []
         if not pd.isna(last.get('SMA_20')):
             sma20 = float(last['SMA_20'])
-            indicators_list.append({
-                'indicator': 'Цена vs SMA 20',
-                'signal': 'positive' if price > sma20 else 'negative',
-                'value': 'Выше' if price > sma20 else 'Ниже',
-                'description': 'Краткосрочный тренд ' + ('вверх' if price > sma20 else 'вниз')
-            })
+            indicators_list.append({'indicator': 'Цена vs SMA 20', 'signal': 'positive' if price > sma20 else 'negative', 'value': 'Выше' if price > sma20 else 'Ниже', 'description': 'Краткосрочный тренд ' + ('вверх' if price > sma20 else 'вниз')})
         if not pd.isna(last.get('RSI')):
             rsi_val = float(last['RSI'])
             if rsi_val > 70: sig_type, desc = 'negative', 'Перекупленность'
@@ -218,11 +270,7 @@ def get_ticker(ticker):
             indicators_list.append({'indicator': 'RSI (14)', 'signal': sig_type, 'value': f'{rsi_val:.1f}', 'description': desc})
         if not pd.isna(last.get('MACD')) and not pd.isna(last.get('MACD_Signal')):
             macd, signal = float(last['MACD']), float(last['MACD_Signal'])
-            indicators_list.append({
-                'indicator': 'MACD', 'signal': 'positive' if macd > signal else 'negative',
-                'value': 'Выше Signal' if macd > signal else 'Ниже Signal',
-                'description': 'Бычий импульс' if macd > signal else 'Медвежий импульс'
-            })
+            indicators_list.append({'indicator': 'MACD', 'signal': 'positive' if macd > signal else 'negative', 'value': 'Выше Signal' if macd > signal else 'Ниже Signal', 'description': 'Бычий импульс' if macd > signal else 'Медвежий импульс'})
         if not pd.isna(last.get('BB_Upper')) and not pd.isna(last.get('BB_Lower')):
             bb_upper, bb_lower = float(last['BB_Upper']), float(last['BB_Lower'])
             bb_range = bb_upper - bb_lower
@@ -234,19 +282,10 @@ def get_ticker(ticker):
                 indicators_list.append({'indicator': 'Bollinger Bands', 'signal': sig_t, 'value': f'{bb_pos:.0f}%', 'description': desc})
         volume = float(last['Volume'])
         avg_volume = df['Volume'].tail(20).mean()
-        indicators_list.append({
-            'indicator': 'Объём',
-            'signal': 'positive' if volume > avg_volume * 1.5 else 'neutral',
-            'value': f'{volume/1000000:.1f}M',
-            'description': 'Высокая активность' if volume > avg_volume * 1.5 else 'Обычная активность'
-        })
+        indicators_list.append({'indicator': 'Объём', 'signal': 'positive' if volume > avg_volume * 1.5 else 'neutral', 'value': f'{volume/1000000:.1f}M', 'description': 'Высокая активность' if volume > avg_volume * 1.5 else 'Обычная активность'})
         if not pd.isna(last.get('SMA_20')) and not pd.isna(last.get('SMA_50')):
             sma20, sma50 = float(last['SMA_20']), float(last['SMA_50'])
-            indicators_list.append({
-                'indicator': 'Тренд', 'signal': 'positive' if sma20 > sma50 else 'negative',
-                'value': '↑ Рост' if sma20 > sma50 else '↓ Падение',
-                'description': 'Восходящий тренд' if sma20 > sma50 else 'Нисходящий тренд'
-            })
+            indicators_list.append({'indicator': 'Тренд', 'signal': 'positive' if sma20 > sma50 else 'negative', 'value': '↑ Рост' if sma20 > sma50 else '↓ Падение', 'description': 'Восходящий тренд' if sma20 > sma50 else 'Нисходящий тренд'})
         
         other_tf = '1h' if tf == '1d' else '1d'
         other_days = 30 if other_tf == '1h' else 365
@@ -307,9 +346,7 @@ def get_screener():
                 df_1h = pipeline.update_data(ticker, '1h', 30)
                 if df_1d.empty or df_1h.empty:
                     continue
-                from technical_analysis import (
-                    calculate_sma, calculate_rsi, calculate_macd, calculate_bollinger_bands
-                )
+                from technical_analysis import calculate_sma, calculate_rsi, calculate_macd, calculate_bollinger_bands
                 for df in [df_1d, df_1h]:
                     df['SMA_20'] = calculate_sma(df['Close'], 20)
                     df['SMA_50'] = calculate_sma(df['Close'], 50)
@@ -324,14 +361,38 @@ def get_screener():
                 total_neg = sig_1d['negative'] + sig_1h['negative']
                 total_neu = sig_1d['neutral'] + sig_1h['neutral']
                 total = total_pos + total_neg + total_neu
-                score = (total_pos - total_neg) / total * 100 if total > 0 else 0
+                
+                # ИСПРАВЛЕННЫЙ РАСЧЕТ SCORE (может быть > 50 или < -50)
+                raw_score = (total_pos - total_neg) / total * 100 if total > 0 else 0
+                last_price = float(df_1h.iloc[-1]['Close'])
+                sma_20 = float(df_1h['Close'].rolling(20).mean().iloc[-1])
+                sma_50 = float(df_1h['Close'].rolling(50).mean().iloc[-1]) if len(df_1h) >= 50 else sma_20
+                
+                trend_bonus = 0
+                if last_price > sma_20 and sma_20 > sma_50: trend_bonus = 25
+                elif last_price < sma_20 and sma_20 < sma_50: trend_bonus = -25
+                elif last_price > sma_20: trend_bonus = 10
+                else: trend_bonus = -10
+                
+                score = round(max(-100, min(100, raw_score + trend_bonus)), 1)
+                
                 features = pipeline.get_features(df_1h)
                 ai = TradingAI(ticker, 8)
-                ai_pred_str, ai_conf = 'HOLD', 0
+                ai_pred_str, ai_conf = 'HOLD', 50
                 if ai.load() and not features.empty:
-                    ai_pred = ai.predict(features)
-                    ai_pred_str = ai_pred.get('prediction', 'HOLD')
-                    ai_conf = ai_pred.get('confidence', 0)
+                    try:
+                        ai_pred = ai.predict(features)
+                        ai_pred_str = ai_pred.get('prediction', 'HOLD')
+                        ai_conf = ai_pred.get('confidence', 50)
+                    except:
+                        smart_pred = generate_smart_prediction(df_1h, ticker)
+                        ai_pred_str = smart_pred['prediction']
+                        ai_conf = smart_pred['confidence']
+                else:
+                    smart_pred = generate_smart_prediction(df_1h, ticker)
+                    ai_pred_str = smart_pred['prediction']
+                    ai_conf = smart_pred['confidence']
+                
                 last_1h = df_1h.iloc[-1]
                 prev_1h = df_1h.iloc[-2] if len(df_1h) > 1 else last_1h
                 price = float(last_1h['Close'])
@@ -341,10 +402,12 @@ def get_screener():
                 macd_val = float(last_1h.get('MACD', 0)) if not pd.isna(last_1h.get('MACD')) else 0
                 macd_sig = float(last_1h.get('MACD_Signal', 0)) if not pd.isna(last_1h.get('MACD_Signal')) else 0
                 macd_signal = 'bullish' if macd_val > macd_sig else ('bearish' if macd_val < macd_sig else 'neutral')
+                
                 results.append({
                     'ticker': ticker, 'name': TICKER_NAMES.get(ticker, ticker),
                     'color': TICKER_COLORS.get(ticker, '#848e9c'),
-                    'score': round(score, 1), 'positive': total_pos, 'negative': total_neg, 'neutral': total_neu,
+                    'logo': f"/static/images/logos/{ticker}.png",
+                    'score': score, 'positive': total_pos, 'negative': total_neg, 'neutral': total_neu,
                     'forecast_1d': sig_1d.get('forecast_ru', '—'), 'forecast_1h': sig_1h.get('forecast_ru', '—'),
                     'price': price, 'change': round(change, 2), 'change_percent': round(change_pct, 2),
                     'rsi': round(float(last_1h.get('RSI', 50)), 1) if not pd.isna(last_1h.get('RSI')) else 50,

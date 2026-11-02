@@ -12,7 +12,6 @@
 </head>
 <body>
 
-<!-- Фоновые эффекты -->
 <canvas id="bgCanvas" class="bg-canvas"></canvas>
 <div class="glow-orb glow-orb-1"></div>
 <div class="glow-orb glow-orb-2"></div>
@@ -49,7 +48,8 @@
                     <button class="menu-toggle"><i class="fas fa-bars"></i></button>
                     <div class="stock-header">
                         <div class="company-logo" id="companyLogo">
-                            <span class="logo-letter" id="logoLetter">S</span>
+                            <img id="companyLogoImg" src="" alt="" style="width:100%;height:100%;object-fit:contain;display:none;" onerror="this.style.display='none';document.getElementById('logoLetter').style.display='flex'">
+                            <span class="logo-letter" id="logoLetter" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;">S</span>
                         </div>
                         <div>
                             <h2 id="stockName">SBER — Сбербанк</h2>
