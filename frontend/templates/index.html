@@ -1,254 +1,54 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trader AI — Анализ акций МОEX</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark"><title>Trader / Обзор рынка</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>
 </head>
 <body>
-
-<canvas id="bgCanvas" class="bg-canvas"></canvas>
-<div class="glow-orb glow-orb-1"></div>
-<div class="glow-orb glow-orb-2"></div>
-<div class="glow-orb glow-orb-3"></div>
-
-<div class="app">
-    <aside class="sidebar">
-        <div class="logo">
-            <div class="logo-icon">T</div>
-            <div class="logo-text">
-                <h1>Trader AI</h1>
-                <span>АНАЛИЗ АКЦИЙ МОEX</span>
-            </div>
-        </div>
-        <nav class="nav">
-            <button class="nav-btn active" data-tab="dashboard"><i class="fas fa-chart-line"></i><span>Дашборд</span></button>
-            <button class="nav-btn" data-tab="screener"><i class="fas fa-search"></i><span>Скринер</span></button>
-            <button class="nav-btn" data-tab="news"><i class="fas fa-newspaper"></i><span>Новости</span></button>
-        </nav>
-        <div class="stock-selector-section">
-            <label>ВЫБРАТЬ АКЦИЮ</label>
-            <select id="tickerSelect" class="stock-select"></select>
-        </div>
-        <div class="quick-overview">
-            <label>БЫСТРЫЙ ОБЗОР <span style="font-size:10px;color:var(--text-muted);text-transform:none;">(по объёму)</span></label>
-            <div id="quickOverviewList" class="quick-overview-list"></div>
-        </div>
-    </aside>
-
-    <main class="main-content">
-        <div class="tab-content active" id="dashboard">
-            <div class="dashboard-header">
-                <div class="header-left">
-                    <button class="menu-toggle"><i class="fas fa-bars"></i></button>
-                    <div class="stock-header">
-                        <div class="company-logo" id="companyLogo">
-                            <img id="companyLogoImg" src="" alt="" style="width:100%;height:100%;object-fit:contain;display:none;" onerror="this.style.display='none';document.getElementById('logoLetter').style.display='flex'">
-                            <span class="logo-letter" id="logoLetter" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;">S</span>
-                        </div>
-                        <div>
-                            <h2 id="stockName">SBER — Сбербанк</h2>
-                            <span class="stock-subtitle">Технический анализ и сигналы</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="header-right">
-                    <div class="connection-status"><span class="status-dot online"></span>MOEX Online</div>
-                    <div class="current-time" id="currentTime">16:17</div>
-                </div>
-            </div>
-
-            <div class="top-cards-grid">
-                <div class="info-card price-card reveal">
-                    <div class="card-label">ЦЕНА <span class="price-change positive"><i class="fas fa-arrow-up"></i> <span id="priceChangePercent">1.37%</span></span></div>
-                    <div class="card-price"><span id="currentPrice">312.45 ₽</span></div>
-                    <div class="card-delta positive" id="priceDelta">+4.23 ₽</div>
-                    <div class="card-stats">
-                        <div class="stat"><span class="stat-label">Объём</span><span class="stat-value" id="volume">45.2M</span></div>
-                        <div class="stat"><span class="stat-label">Капитализация</span><span class="stat-value" id="marketCap">—</span></div>
-                    </div>
-                </div>
-                <div class="info-card rsi-card reveal">
-                    <div class="card-label">RSI (14)</div>
-                    <div class="rsi-value" id="rsiValue">62.3</div>
-                    <div class="rsi-bar"><div class="rsi-fill" id="rsiFill" style="width: 62.3%"></div></div>
-                    <div class="rsi-scale"><span>0</span><span>30</span><span>70</span><span>100</span></div>
-                    <div class="rsi-status positive"><i class="fas fa-check-circle"></i> Нормальная зона</div>
-                </div>
-                <div class="info-card ai-forecast-card reveal">
-                    <div class="card-label">ПРОГНОЗ ИИ</div>
-                    <div class="ai-signal buy"><span class="signal-dot"></span><span class="signal-text" id="aiSignal">BUY</span></div>
-                    <div class="forecast-details">
-                        <div class="forecast-row"><span>Вероятность покупки</span><span id="buyProbability">68.5%</span></div>
-                        <div class="forecast-row"><span>Уверенность модели</span><span id="modelConfidence">72%</span></div>
-                    </div>
-                    <div class="confidence-bar"><div class="confidence-fill" id="confidenceFill" style="width: 72%"></div></div>
-                </div>
-                <div class="info-card score-card reveal">
-                    <div class="card-label">ОБЩИЙ SCORE</div>
-                    <div class="gauge-container">
-                        <svg class="gauge" viewBox="0 0 200 100">
-                            <path class="gauge-bg" d="M 20 100 A 80 80 0 0 1 180 100"></path>
-                            <path class="gauge-fill" id="scoreGauge" d="M 20 100 A 80 80 0 0 1 180 100" style="stroke-dasharray: 251.2; stroke-dashoffset: 70;"></path>
-                            <text class="gauge-value" id="scoreValue" x="100" y="85">+72</text>
-                        </svg>
-                    </div>
-                    <div class="score-label positive"><i class="fas fa-chart-line"></i> Бычий сигнал</div>
-                </div>
-            </div>
-
-            <div class="indicators-charts-grid">
-                <div class="chart-card reveal">
-                    <div class="chart-header"><span><i class="fas fa-chart-area"></i> RSI (Relative Strength Index)</span></div>
-                    <div class="chart-container" id="rsiChartContainer"><canvas id="rsiChart"></canvas></div>
-                </div>
-                <div class="chart-card reveal">
-                    <div class="chart-header"><span><i class="fas fa-chart-line"></i> MACD</span></div>
-                    <div class="chart-container" id="macdChartContainer"><canvas id="macdChart"></canvas></div>
-                </div>
-            </div>
-
-            <div class="analysis-grid">
-                <div class="analysis-card reveal">
-                    <div class="analysis-header">
-                        <div><span class="timeframe-badge">📅 1 День (1D)</span><div class="analysis-subtitle">Долгосрочный анализ</div></div>
-                        <div class="score-badge positive" id="score1d">Score: 83%</div>
-                    </div>
-                    <div class="indicators-summary">
-                        <span class="indicator-count positive"><span class="dot"></span> <span id="positive1d">5</span> позитив</span>
-                        <span class="indicator-count negative"><span class="dot"></span> <span id="negative1d">0</span> негатив</span>
-                        <span class="indicator-count neutral"><span class="dot"></span> <span id="neutral1d">1</span> нейтрал</span>
-                    </div>
-                    <div class="indicators-list" id="indicators1d"></div>
-                </div>
-                <div class="analysis-card reveal">
-                    <div class="analysis-header">
-                        <div><span class="timeframe-badge">⏰ 1 Час (1H)</span><div class="analysis-subtitle">Краткосрочный анализ</div></div>
-                        <div class="score-badge positive" id="score1h">Score: 83%</div>
-                    </div>
-                    <div class="indicators-summary">
-                        <span class="indicator-count positive"><span class="dot"></span> <span id="positive1h">5</span> позитив</span>
-                        <span class="indicator-count negative"><span class="dot"></span> <span id="negative1h">0</span> негатив</span>
-                        <span class="indicator-count neutral"><span class="dot"></span> <span id="neutral1h">1</span> нейтрал</span>
-                    </div>
-                    <div class="indicators-list" id="indicators1h"></div>
-                </div>
-            </div>
-
-            <div class="price-chart-section reveal">
-                <div class="section-header">
-                    <h3><i class="fas fa-chart-bar"></i> Ценовой график</h3>
-                    <div class="chart-type-selector">
-                        <button class="chart-type-btn active" data-type="candle"><i class="fas fa-chart-bar"></i> Свечи</button>
-                        <button class="chart-type-btn" data-type="line"><i class="fas fa-chart-line"></i> Линия</button>
-                    </div>
-                    <div class="timeframe-selector">
-                        <button class="timeframe-btn active" data-timeframe="1d">1D (Дневной)</button>
-                        <button class="timeframe-btn" data-timeframe="1h">1H (Часовой)</button>
-                    </div>
-                </div>
-                <div class="chart-container large" id="priceChartContainer"><canvas id="priceChart"></canvas></div>
-            </div>
-
-            <div class="final-recommendation reveal">
-                <h3><i class="fas fa-bullseye"></i> Итоговая рекомендация</h3>
-                <div class="recommendation-summary">
-                    <span class="rec-count positive"><span class="dot"></span> Позитивных: <strong id="totalPositive">5</strong></span>
-                    <span class="rec-count negative"><span class="dot"></span> Негативных: <strong id="totalNegative">0</strong></span>
-                    <span class="rec-count neutral"><span class="dot"></span> Нейтральных: <strong id="totalNeutral">1</strong></span>
-                </div>
-                <div class="recommendation-box strong-buy">
-                    <div class="recommendation-icon">📈</div>
-                    <div class="recommendation-content">
-                        <div class="recommendation-title" id="recTitle">СИЛЬНЫЙ БЫЧИЙ СИГНАЛ</div>
-                        <div class="recommendation-text" id="recText">Рассмотреть покупку на откатах. Стоп-лосс ниже ближайшей поддержки.</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-                    <!-- Новые связанные новости на дашборде -->
-            <div class="ticker-news-section reveal">
-                <div class="section-header">
-                    <h3><i class="fas fa-newspaper"></i> Последние новости по <span id="tickerNewsName">SBER</span></h3>
-                    <span class="section-subtitle">Влияние новостного фона на прогноз ИИ</span>
-                </div>
-                <div class="news-feed" id="tickerNewsFeed">
-                    <div style="text-align: center; padding: 20px; color: var(--text-secondary);">
-                        <i class="fas fa-spinner fa-spin"></i> Загрузка новостей...
-                    </div>
-                </div>
-            </div>
-
-        <div class="tab-content" id="screener">
-            <div class="dashboard-header">
-                <div class="header-left">
-                    <button class="menu-toggle"><i class="fas fa-bars"></i></button>
-                    <div><h2><i class="fas fa-search"></i> Скринер рынка MOEX</h2><span class="stock-subtitle">Сканирование акций по техническим индикаторам</span></div>
-                </div>
-                <div class="header-right">
-                    <div class="connection-status"><span class="status-dot online"></span>MOEX Online</div>
-                    <div class="current-time" id="screenerTime">17:26</div>
-                </div>
-            </div>
-            <div class="screener-summary-grid">
-                <div class="summary-card reveal"><div class="summary-label">ВСЕГО АКЦИЙ</div><div class="summary-value" id="totalStocks">0</div><div class="summary-desc">Отслеживаемые тикеры</div></div>
-                <div class="summary-card bullish reveal"><div class="summary-label">БЫЧЬИХ</div><div class="summary-value positive" id="bullishCount">0</div><div class="summary-desc">С сигналом на покупку</div></div>
-                <div class="summary-card bearish reveal"><div class="summary-label">МЕДВЕЖЬИХ</div><div class="summary-value negative" id="bearishCount">0</div><div class="summary-desc">С сигналом на продажу</div></div>
-                <div class="summary-card neutral reveal"><div class="summary-label">НЕЙТРАЛЬНЫХ</div><div class="summary-value neutral-text" id="neutralCount">0</div><div class="summary-desc">Ожидают сигнала</div></div>
-            </div>
-            <div class="screener-table-section reveal">
-                <div class="table-header"><h3><i class="fas fa-table"></i> Таблица скринера</h3><div class="sort-info">Сортировка по Score <i class="fas fa-arrow-down"></i></div></div>
-                <div class="table-container">
-                    <table class="screener-table">
-                        <thead><tr><th>#</th><th>ТИКЕР</th><th>ЦЕНА</th><th>ИЗМ. %</th><th>SCORE</th><th>RSI</th><th>MACD</th><th>ПРОГНОЗ</th><th>ИИ</th><th></th></tr></thead>
-                        <tbody id="screenerBody"></tbody>
-                    </table>
-                </div>
-            </div>
-            <div class="screener-legend reveal">
-                <h3><i class="fas fa-book"></i> Как читать скринер</h3>
-                <div class="legend-grid">
-                    <div class="legend-item"><h4>Score</h4><p>Комплексная оценка от -100 до +100. Положительные значения — бычий сигнал, отрицательные — медвежий.</p></div>
-                    <div class="legend-item"><h4>RSI</h4><p>Индекс относительной силы. >70 — перекупленность (риск коррекции), <30 — перепроданность (возможен отскок).</p></div>
-                    <div class="legend-item"><h4>ИИ Прогноз</h4><p>Предсказание ML-модели. BUY — покупать, HOLD — держать, SELL — продавать.</p></div>
-                </div>
-            </div>
-        </div>
-
-        <div class="tab-content" id="news">
-            <div class="dashboard-header">
-                <div class="header-left">
-                    <button class="menu-toggle"><i class="fas fa-bars"></i></button>
-                    <div><h2><i class="fas fa-newspaper"></i> Новости рынка</h2><span class="stock-subtitle">Актуальные новости, влияющие на рынок</span></div>
-                </div>
-                <div class="header-right">
-                    <div class="connection-status"><span class="status-dot online"></span>MOEX Online</div>
-                    <div class="current-time" id="newsTime">17:26</div>
-                </div>
-            </div>
-            <div class="news-summary-grid">
-                <div class="summary-card positive reveal"><div class="summary-label">ПОЗИТИВНЫХ НОВОСТЕЙ</div><div class="summary-value positive" id="positiveNews">0</div><div class="summary-desc">Поддерживают рост рынка</div></div>
-                <div class="summary-card negative reveal"><div class="summary-label">НЕГАТИВНЫХ</div><div class="summary-value negative" id="negativeNews">0</div><div class="summary-desc">Могут давить на цену</div></div>
-                <div class="summary-card neutral reveal"><div class="summary-label">НЕЙТРАЛЬНЫХ</div><div class="summary-value neutral-text" id="neutralNews">0</div><div class="summary-desc">Не оказывают влияния</div></div>
-            </div>
-            <div class="news-feed-section reveal">
-                <div class="section-header"><h3><i class="fas fa-rss"></i> Лента новостей рынка MOEX</h3><span class="section-subtitle">Новости, которые могут повлиять на котировки акций</span></div>
-                <div class="news-feed" id="newsFeed"></div>
-            </div>
-            <div class="ai-news-info reveal">
-                <h3><i class="fas fa-robot"></i> Как ИИ использует новости</h3>
-                <p>В будущих обновлениях наш ИИ будет анализировать новостной фон с помощью NLP (Natural Language Processing). Модель будет определять тональность новостей, их потенциальное влияние на конкретные акции и корректировать прогнозы с учётом фундаментальных факторов.</p>
-            </div>
-        </div>
-    </main>
-</div>
-
-<script src="{{ url_for('static', filename='js/app.js') }}"></script>
-</body>
-</html>
+<aside class="sidebar">
+  <a class="brand" href="/" aria-label="Trader — главная"><span class="brand-mark"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17 10 11 14 14 20 6M14 6h6v6" fill="none" stroke="currentColor" stroke-width="2"/></svg></span> trader<span class="brand-dot">.</span></a>
+  <span class="eyebrow">RESEARCH TERMINAL</span>
+  <nav aria-label="Разделы">
+    <button class="nav active" data-tab="dashboard" aria-current="page"><span>◫</span> Обзор акции</button>
+    <button class="nav" data-tab="screener"><span>⊞</span> Скринер рынка</button>
+    <button class="nav" data-tab="news"><span>≋</span> Новостной фон</button>
+  </nav>
+  <div class="watch-heading"><span class="eyebrow">НАБЛЮДЕНИЕ</span><span>MOEX</span></div>
+  <div id="watchlist" class="watchlist" aria-label="Список акций"></div>
+  <div class="sidebar-bottom"><span class="small-dot"></span> Данные MOEX ISS<br><small>Исследуйте. Проверяйте. Решайте.</small></div>
+</aside>
+<main>
+  <header class="topbar"><div><span class="eyebrow">РОССИЙСКИЙ РЫНОК</span><span class="topbar-divider">/</span><span id="pageLabel">Обзор акции</span></div><time id="clock"></time></header>
+  <div class="page-heading"><div><p class="eyebrow">ВАШ РЫНОЧНЫЙ КОНТЕКСТ</p><h1 id="pageTitle">Каждое решение начинается с данных.</h1></div><button id="refresh" class="button">↻ Обновить</button></div>
+  <div id="notice" role="status" class="notice" hidden></div>
+  <section id="dashboard" class="tab">
+    <div class="instrument-header"><div class="instrument"><span id="tickerMonogram" class="monogram">—</span><div><h2 id="stockName">Выберите акцию</h2><p id="stockTicker" class="muted">Московская биржа · Акции</p></div></div><div class="segmented" aria-label="Таймфрейм"><button data-tf="1d" class="active" aria-pressed="true">День</button><button data-tf="1h" aria-pressed="false">Час</button></div></div>
+    <div id="dataStatus" class="data-status">Проверяем доступность данных…</div>
+    <div id="quoteContent" hidden>
+      <div class="metrics">
+        <article class="metric"><p>Последняя цена <span>₽</span></p><strong id="price">—</strong><div id="change">—</div><small id="periodLabel">Изменение за свечу</small></article>
+        <article class="metric"><p>Техническая оценка <span>−100 … +100</span></p><strong id="score">—</strong><div class="score-track"><span id="scoreFill"></span></div><small>Баланс сигналов, не вероятность</small></article>
+        <article class="metric"><p>Сценарий <span id="predictionSource">Правила</span></p><strong id="prediction">—</strong><div id="probability">—</div><small id="predictionNote">—</small></article>
+        <article class="metric"><p>Риск <span>20 свечей</span></p><strong id="volatility">—</strong><div>Волатильность доходности</div><small id="drawdown">—</small></article>
+      </div>
+      <div class="research-grid">
+        <article class="panel price-panel"><div class="panel-header"><div><span class="eyebrow">ДИНАМИКА ЦЕНЫ</span><h3 id="chartTitle">Цена и SMA 20</h3></div><div class="chart-legend"><span class="legend-line"></span> Цена <span class="legend-line amber"></span> SMA 20</div></div><div class="chart-wrap"><canvas id="priceChart" role="img" aria-label="История цены и скользящая средняя"></canvas></div><div class="panel-footer"><span id="chartRange">—</span><span>Завершённые свечи · MSK</span></div></article>
+        <article class="panel"><div class="panel-header"><div><span class="eyebrow">ЧТО ГОВОРЯТ ДАННЫЕ</span><h3>Карта сигналов</h3></div></div><div id="signals" class="signals"></div><p class="panel-note">Индикаторы могут коррелировать. Перекупленность не гарантирует разворот.</p></article>
+      </div>
+      <div class="indicator-grid"><article class="panel"><div class="panel-header"><h3>RSI <span class="muted">/ 14</span></h3><span id="rsiValue" class="pill">—</span></div><div class="chart-wrap compact"><canvas id="rsiChart" role="img" aria-label="Индекс RSI, зоны 30 и 70"></canvas></div></article><article class="panel"><div class="panel-header"><h3>MACD <span class="muted">/ 12, 26, 9</span></h3><span class="muted">Импульс</span></div><div class="chart-wrap compact"><canvas id="macdChart" role="img" aria-label="MACD и сигнальная линия"></canvas></div></article></div>
+    </div>
+    <article class="panel news-panel"><div class="panel-header"><div><span class="eyebrow">СОБЫТИЯ И КОНТЕКСТ</span><h3>Новости по акции</h3></div><span class="pill">Отдельно от прогноза</span></div><div id="tickerNews" class="news-list"><p class="empty">Загружаем источники…</p></div></article>
+  </section>
+  <section id="screener" class="tab" hidden>
+    <div class="section-intro"><div><h2>Скринер рынка</h2><p class="muted">Дневные сигналы по всему списку наблюдения. Нажмите на акцию для исследования.</p></div><label class="search"><span>⌕</span><input id="stockSearch" type="search" placeholder="Тикер или компания" aria-label="Поиск акций"></label></div>
+    <article class="panel"><div class="table-scroll"><table><thead><tr><th>Компания</th><th>Цена, ₽</th><th>За свечу</th><th><button id="sortScore">Оценка ↓</button></th><th>RSI</th><th>Сценарий</th><th>Данные</th></tr></thead><tbody id="screenerBody"></tbody></table></div><div class="panel-footer" id="screenerSummary">—</div></article>
+  </section>
+  <section id="news" class="tab" hidden>
+    <div class="section-intro"><div><h2>Новостной фон</h2><p class="muted">Тональность текста по правилам. Не оценка будущей доходности.</p></div><label>Фильтр <select id="newsFilter"><option value="all">Все новости</option><option value="positive">Позитивные</option><option value="negative">Негативные</option><option value="neutral">Нейтральные</option></select></label></div>
+    <article class="panel"><div class="panel-header"><h3>Лента событий</h3><span id="newsStatus" class="muted">—</span></div><div id="newsFeed" class="news-list"></div></article>
+  </section>
+  <footer>Trader Research <span>Технические оценки и тональность новостей требуют проверки. Доходность стратегии на истории пока не подтверждена.</span></footer>
+</main>
+</body></html>

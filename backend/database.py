@@ -12,7 +12,12 @@ class TradingDatabase:
     def __init__(self, db_path: str = None):
         if db_path is None:
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            db_path = os.path.join(project_root, 'trading_data.db')
+            db_path = os.environ.get('TRADER_DB_PATH', os.path.join(project_root, '.runtime', 'trading_data.db'))
+            os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+            seed = os.path.join(project_root, 'trading_data.db')
+            if not os.path.exists(db_path) and os.path.exists(seed):
+                import shutil
+                shutil.copy2(seed, db_path)
         
         self.db_path = db_path
         self.lock = threading.Lock()

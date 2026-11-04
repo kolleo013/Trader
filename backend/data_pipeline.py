@@ -80,4 +80,4 @@ class DataPipeline:
         features['distance_to_20d_high'] = (df['Close'] - df['Close'].rolling(20).max()) / df['Close']
         features['distance_to_20d_low'] = (df['Close'] - df['Close'].rolling(20).min()) / df['Close']
         
-        return features.dropna()
+        return features.replace([float('inf'), -float('inf')], float('nan')).dropna()

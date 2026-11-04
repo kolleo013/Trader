@@ -1,472 +1,152 @@
+"""MOEX research dashboard. Run: python backend/app.py."""
 import os
-import sys
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 import pandas as pd
 from flask import Flask, jsonify, render_template, request
-from flask_cors import CORS
-from news_analyzer import fetch_all_news
 from dotenv import load_dotenv
-
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 from database import TradingDatabase
 from pars import MOEXDataFetcher
-from data_pipeline import DataPipeline
-from ml_model import TradingAI
-from signal_analyzer import SignalAnalyzer
+from market import MarketStore, TICKERS
+from analytics import analyze, prediction, finite_json
+from technical_analysis import calculate_sma, calculate_rsi, calculate_macd
+from news_analyzer import fetch_all_news, TICKER_TO_SECTOR
 
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
-
-app = Flask(__name__, 
-            static_folder='../frontend/static',
-            template_folder='../frontend/templates')
-CORS(app)
-
+ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(ROOT / '.env')
+app = Flask(__name__, static_folder='../frontend/static', template_folder='../frontend/templates')
 db = TradingDatabase()
-fetcher = MOEXDataFetcher()
-pipeline = DataPipeline(db, fetcher)
+store = MarketStore(db, MOEXDataFetcher())
+news_lock = threading.Lock()
+news_cache = {'items': [], 'checked': 0, 'updated': None, 'stale': True}
 
-ALL_TICKERS = [
-    'SBER', 'GAZP', 'OZON', 'YNDX', 'TCSG', 
-    'LKOH', 'NVTK', 'MGNT', 'FLOT', 'HYDR', 
-    'SNGS', 'CHMF', 'MTSS', 'PLZL', 'MOEX'
-]
 
-TICKER_NAMES = {
-    'SBER': 'Сбербанк', 'GAZP': 'Газпром', 'OZON': 'OZON Holdings',
-    'YNDX': 'Яндекс', 'TCSG': 'Тинькофф', 'LKOH': 'Лукойл',
-    'NVTK': 'Новатэк', 'MGNT': 'Магнит', 'FLOT': 'Совкомфлот',
-    'HYDR': 'РусГидро', 'SNGS': 'Сургутнефтегаз', 'CHMF': 'Северсталь',
-    'MTSS': 'МТС', 'PLZL': 'Полюс Золото', 'MOEX': 'Московская Биржа'
-}
+def response(data, status=200):
+    return jsonify(finite_json(data)), status
 
-TICKER_COLORS = {
-    'SBER': '#21a038', 'GAZP': '#0078be', 'OZON': '#005bff',
-    'YNDX': '#fc3f1d', 'TCSG': '#ffdd2d', 'LKOH': '#e30611',
-    'NVTK': '#0033a0', 'MGNT': '#e30613', 'FLOT': '#004b87',
-    'HYDR': '#0033a0', 'SNGS': '#0078be', 'CHMF': '#0033a0',
-    'MTSS': '#e30613', 'PLZL': '#c9a961', 'MOEX': '#0078be'
-}
 
-DEMO_NEWS = [
-    {'title': 'Сбербанк увеличил чистую прибыль на 28% по итогам квартала',
-     'description': 'Чистая прибыль Сбербанка выросла на 28% год к году, превысив ожидания аналитиков.',
-     'sentiment': 'positive', 'source': 'Интерфакс', 'time_ago': '15 мин назад', 'affects': ['SBER']},
-    {'title': 'ЦБ РФ сохранил ключевую ставку на уровне 21%',
-     'description': 'Банк России принял решение сохранить ключевую ставку без изменений.',
-     'sentiment': 'neutral', 'source': 'РБК', 'time_ago': '1 час назад', 'affects': ['SBER', 'MOEX']},
-    {'title': 'Газпром снизил добычу газа на 12% из-за санкций',
-     'description': 'Добыча газа Газпрома продолжает снижаться на фоне ограничений экспорта в Европу.',
-     'sentiment': 'negative', 'source': 'Bloomberg', 'time_ago': '2 часа назад', 'affects': ['GAZP']},
-    {'title': 'РусГидро объявило о снижении дивидендов',
-     'description': 'Совет директоров рекомендовал снизить дивидендные выплаты на 30%.',
-     'sentiment': 'negative', 'source': 'ТАСС', 'time_ago': '5 часов назад', 'affects': ['HYDR']},
-    {'title': 'Золото обновило исторический максимум — $2,780/oz',
-     'description': 'Цена золота продолжает рост на фоне геополитической неопределённости.',
-     'sentiment': 'positive', 'source': 'Financial Times', 'time_ago': '6 часов назад', 'affects': ['PLZL']},
-    {'title': 'Северсталь увеличила экспорт стали в Азию на 40%',
-     'description': 'Компания успешно диверсифицировала рынки сбыта, нарастив поставки в Китай и Индию.',
-     'sentiment': 'positive', 'source': 'Коммерсантъ', 'time_ago': '7 часов назад', 'affects': ['CHMF']}
-]
+def validate(ticker, tf):
+    if ticker not in TICKERS or tf not in ('1d', '1h'):
+        raise ValueError('Неизвестная акция или таймфрейм')
 
-def generate_smart_prediction(df, ticker):
-    """Генерирует реалистичный прогноз на основе технических индикаторов, если ML модель не работает"""
-    from technical_analysis import calculate_rsi, calculate_macd
-    
-    last_close = float(df['Close'].iloc[-1])
-    prev_close = float(df['Close'].iloc[-2]) if len(df) > 1 else last_close
-    change_pct = ((last_close - prev_close) / prev_close) * 100
-    
-    rsi_series = calculate_rsi(df['Close'], 14)
-    rsi = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else 50
-    
-    macd, macd_signal, _ = calculate_macd(df['Close'])
-    macd_val = float(macd.iloc[-1]) if not pd.isna(macd.iloc[-1]) else 0
-    macd_sig = float(macd_signal.iloc[-1]) if not pd.isna(macd_signal.iloc[-1]) else 0
-    
-    confidence = 50.0
-    
-    if rsi < 30: confidence += 20
-    elif rsi > 70: confidence -= 20
-    elif 40 < rsi < 60: confidence -= 10
-    
-    if macd_val > macd_sig: confidence += 15
-    else: confidence -= 15
-    
-    sma_20 = float(df['Close'].rolling(20).mean().iloc[-1])
-    sma_50 = float(df['Close'].rolling(50).mean().iloc[-1]) if len(df) >= 50 else sma_20
-    
-    if last_close > sma_20 and sma_20 > sma_50: confidence += 20
-    elif last_close < sma_20 and sma_20 < sma_50: confidence -= 20
-    elif last_close > sma_20: confidence += 10
-    else: confidence -= 10
-    
-    confidence = max(15.0, min(95.0, confidence))
-    
-    if confidence >= 65 and change_pct > -3:
-        prediction = 'BUY'
-        buy_probability = 50 + (confidence - 50) * 1.5
-    elif confidence <= 35 or change_pct < -5:
-        prediction = 'SELL'
-        buy_probability = 50 - (50 - confidence) * 1.5
-    else:
-        prediction = 'HOLD'
-        buy_probability = 50.0
-    
-    return {
-        'prediction': prediction,
-        'confidence': round(confidence, 1),
-        'buy_probability': round(buy_probability, 1)
-    }
+
+@app.errorhandler(ValueError)
+def invalid(error):
+    return response({'error': str(error)}, 400)
+
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
+
+@app.route('/api/health')
+def health():
+    return response({'status': 'ok', 'tickers': len(TICKERS)})
+
+
 @app.route('/api/tickers')
-def get_tickers():
-    return jsonify([
-        {
-            'ticker': t, 
-            'name': TICKER_NAMES.get(t, t), 
-            'color': TICKER_COLORS.get(t, '#848e9c'),
-            'logo': f"/static/images/logos/{t}.png"
-        }
-        for t in ALL_TICKERS
-    ])
+def tickers():
+    return response([{'ticker': t, 'name': n} for t, n in TICKERS.items()])
 
-@app.route('/api/chart/<ticker>/<timeframe>')
-def get_chart_data(ticker, timeframe):
-    days = 365 if timeframe == '1d' else 30
-    df = pipeline.update_data(ticker, timeframe, days)
-    if df.empty:
-        return jsonify({'error': 'Нет данных'}), 404
-    
-    from technical_analysis import calculate_sma, calculate_rsi, calculate_macd, calculate_bollinger_bands
-    df['SMA_20'] = calculate_sma(df['Close'], 20)
-    df['SMA_50'] = calculate_sma(df['Close'], 50)
-    df['RSI'] = calculate_rsi(df['Close'], 14)
-    df['MACD'], df['MACD_Signal'], df['MACD_Hist'] = calculate_macd(df['Close'])
-    df['BB_Upper'], df['BB_Middle'], df['BB_Lower'], df['BB_Width'] = calculate_bollinger_bands(df['Close'])
-    
-    data = []
-    for date, row in df.iterrows():
-        data.append({
-            'date': date.strftime('%Y-%m-%d %H:%M'),
-            'open': float(row['Open']), 'high': float(row['High']),
-            'low': float(row['Low']), 'close': float(row['Close']),
-            'volume': float(row['Volume']),
-            'sma_20': float(row.get('SMA_20', 0)) if not pd.isna(row.get('SMA_20')) else None,
-            'sma_50': float(row.get('SMA_50', 0)) if not pd.isna(row.get('SMA_50')) else None,
-            'rsi': float(row.get('RSI', 0)) if not pd.isna(row.get('RSI')) else None,
-            'macd': float(row.get('MACD', 0)) if not pd.isna(row.get('MACD')) else None,
-            'macd_signal': float(row.get('MACD_Signal', 0)) if not pd.isna(row.get('MACD_Signal')) else None,
-            'macd_hist': float(row.get('MACD_Hist', 0)) if not pd.isna(row.get('MACD_Hist')) else None,
-            'bb_upper': float(row.get('BB_Upper', 0)) if not pd.isna(row.get('BB_Upper')) else None,
-            'bb_lower': float(row.get('BB_Lower', 0)) if not pd.isna(row.get('BB_Lower')) else None,
-        })
-    return jsonify(data)
 
-@app.route('/api/signals/<ticker>')
-def get_signals(ticker):
-    try:
-        df_1d = pipeline.update_data(ticker, '1d', 365)
-        df_1h = pipeline.update_data(ticker, '1h', 30)
-        if df_1d.empty or df_1h.empty:
-            return jsonify({'error': 'Нет данных'}), 404
-        from technical_analysis import calculate_sma, calculate_rsi, calculate_macd, calculate_bollinger_bands
-        for df in [df_1d, df_1h]:
-            df['SMA_20'] = calculate_sma(df['Close'], 20)
-            df['SMA_50'] = calculate_sma(df['Close'], 50)
-            df['RSI'] = calculate_rsi(df['Close'], 14)
-            df['MACD'], df['MACD_Signal'], df['MACD_Hist'] = calculate_macd(df['Close'])
-            df['BB_Upper'], df['BB_Middle'], df['BB_Lower'], df['BB_Width'] = calculate_bollinger_bands(df['Close'])
-        sig_1d = SignalAnalyzer(df_1d).analyze_signals()
-        sig_1h = SignalAnalyzer(df_1h).analyze_signals()
-        features = pipeline.get_features(df_1h)
-        ai = TradingAI(ticker, 8)
-        ai_pred = None
-        if ai.load() and not features.empty:
-            try:
-                ai_pred = ai.predict(features)
-            except:
-                ai_pred = generate_smart_prediction(df_1h, ticker)
-        else:
-            ai_pred = generate_smart_prediction(df_1h, ticker)
-        return jsonify({'ticker': ticker, 'signals_1d': sig_1d, 'signals_1h': sig_1h, 'ai_prediction': ai_pred})
-    except Exception as e:
-        print(f"❌ Ошибка в get_signals: {e}")
-        import traceback; traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+def details(ticker, tf):
+    validate(ticker, tf)
+    df, metadata = store.get(ticker, tf)
+    if len(df) < 50:
+        return {'ticker': ticker, 'name': TICKERS[ticker], 'error': 'Недостаточно данных: нужно минимум 50 завершённых свечей', 'data_status': metadata}
+    analysis = analyze(df)
+    recent = df.tail(120).copy()
+    recent['sma_20'] = calculate_sma(df.Close, 20)
+    recent['rsi'] = calculate_rsi(df.Close)
+    recent['macd'], recent['macd_signal'], _ = calculate_macd(df.Close)
+    history = [{'date': str(date), **{k.lower(): float(row[k]) for k in ('Open', 'High', 'Low', 'Close', 'Volume')},
+                'sma_20': row.sma_20, 'rsi': row.rsi, 'macd': row.macd, 'signal': row.macd_signal} for date, row in recent.iterrows()]
+    last, prev = df.iloc[-1], df.iloc[-2]
+    change = float(last.Close - prev.Close)
+    returns = df.Close.pct_change().dropna()
+    return {'ticker': ticker, 'name': TICKERS[ticker], 'timeframe': tf,
+            'price': float(last.Close), 'change': change, 'change_percent': change / prev.Close * 100 if prev.Close else None,
+            'volume': float(last.Volume), 'score': round(analysis['bullish_score'], 1),
+            'analysis': analysis, 'ai_prediction': prediction(df, ticker, tf, analysis),
+            'price_history': history, 'data_status': metadata,
+            'risk': {'bar_volatility_pct': float(returns.tail(20).std() * 100),
+                     'drawdown_pct': float((df.Close / df.Close.cummax() - 1).min() * 100)}}
+
 
 @app.route('/api/ticker/<ticker>')
-def get_ticker(ticker):
-    try:
-        tf = request.args.get('tf', '1d')
-        days = 365 if tf == '1d' else 30
-        df = pipeline.update_data(ticker, tf, days)
-        if df.empty:
-            return jsonify({'error': 'Нет данных'}), 404
-        
-        from technical_analysis import calculate_sma, calculate_rsi, calculate_macd, calculate_bollinger_bands
-        df['SMA_20'] = calculate_sma(df['Close'], 20)
-        df['SMA_50'] = calculate_sma(df['Close'], 50)
-        df['RSI'] = calculate_rsi(df['Close'], 14)
-        df['MACD'], df['MACD_Signal'], df['MACD_Hist'] = calculate_macd(df['Close'])
-        df['BB_Upper'], df['BB_Middle'], df['BB_Lower'], df['BB_Width'] = calculate_bollinger_bands(df['Close'])
-        
-        last = df.iloc[-1]
-        prev = df.iloc[-2] if len(df) > 1 else last
-        price = float(last['Close'])
-        prev_price = float(prev['Close'])
-        change = price - prev_price
-        change_percent = (change / prev_price) * 100 if prev_price > 0 else 0
-        
-        recent = df.tail(60)
-        price_history, rsi_history, macd_history = [], [], []
-        
-        for date, row in recent.iterrows():
-            price_history.append({
-                'date': date.strftime('%Y-%m-%d %H:%M'),
-                'open': float(row['Open']), 'high': float(row['High']),
-                'low': float(row['Low']), 'close': float(row['Close']),
-                'volume': float(row['Volume']),
-                'sma_20': float(row['SMA_20']) if not pd.isna(row.get('SMA_20')) else None
-            })
-            if not pd.isna(row.get('RSI')):
-                rsi_history.append({'date': date.strftime('%m-%d'), 'value': float(row['RSI'])})
-            if not pd.isna(row.get('MACD')):
-                macd_history.append({
-                    'date': date.strftime('%m-%d'),
-                    'macd': float(row['MACD']),
-                    'signal': float(row['MACD_Signal']) if not pd.isna(row.get('MACD_Signal')) else 0
-                })
-        
-        sig = SignalAnalyzer(df).analyze_signals()
-        positive = sig.get('positive', 0)
-        negative = sig.get('negative', 0)
-        neutral = sig.get('neutral', 0)
-        total = positive + negative + neutral
-        score = int((positive - negative) / total * 100) if total > 0 else 0
-        
-        features = pipeline.get_features(df)
-        ai = TradingAI(ticker, 8)
-        ai_pred = None
-        if ai.load() and not features.empty:
-            try:
-                ai_pred = ai.predict(features)
-            except:
-                ai_pred = generate_smart_prediction(df, ticker)
-        else:
-            ai_pred = generate_smart_prediction(df, ticker)
-        
-        indicators_list = []
-        if not pd.isna(last.get('SMA_20')):
-            sma20 = float(last['SMA_20'])
-            indicators_list.append({'indicator': 'Цена vs SMA 20', 'signal': 'positive' if price > sma20 else 'negative', 'value': 'Выше' if price > sma20 else 'Ниже', 'description': 'Краткосрочный тренд ' + ('вверх' if price > sma20 else 'вниз')})
-        if not pd.isna(last.get('RSI')):
-            rsi_val = float(last['RSI'])
-            if rsi_val > 70: sig_type, desc = 'negative', 'Перекупленность'
-            elif rsi_val < 30: sig_type, desc = 'positive', 'Перепроданность'
-            else: sig_type, desc = ('positive', 'Умеренно бычий') if rsi_val > 50 else ('positive', 'Умеренно медвежий')
-            indicators_list.append({'indicator': 'RSI (14)', 'signal': sig_type, 'value': f'{rsi_val:.1f}', 'description': desc})
-        if not pd.isna(last.get('MACD')) and not pd.isna(last.get('MACD_Signal')):
-            macd, signal = float(last['MACD']), float(last['MACD_Signal'])
-            indicators_list.append({'indicator': 'MACD', 'signal': 'positive' if macd > signal else 'negative', 'value': 'Выше Signal' if macd > signal else 'Ниже Signal', 'description': 'Бычий импульс' if macd > signal else 'Медвежий импульс'})
-        if not pd.isna(last.get('BB_Upper')) and not pd.isna(last.get('BB_Lower')):
-            bb_upper, bb_lower = float(last['BB_Upper']), float(last['BB_Lower'])
-            bb_range = bb_upper - bb_lower
-            if bb_range > 0:
-                bb_pos = (price - bb_lower) / bb_range * 100
-                if bb_pos > 80: sig_t, desc = 'negative', 'У верхней границы'
-                elif bb_pos < 20: sig_t, desc = 'positive', 'У нижней границы'
-                else: sig_t, desc = 'neutral', 'В середине канала'
-                indicators_list.append({'indicator': 'Bollinger Bands', 'signal': sig_t, 'value': f'{bb_pos:.0f}%', 'description': desc})
-        volume = float(last['Volume'])
-        avg_volume = df['Volume'].tail(20).mean()
-        indicators_list.append({'indicator': 'Объём', 'signal': 'positive' if volume > avg_volume * 1.5 else 'neutral', 'value': f'{volume/1000000:.1f}M', 'description': 'Высокая активность' if volume > avg_volume * 1.5 else 'Обычная активность'})
-        if not pd.isna(last.get('SMA_20')) and not pd.isna(last.get('SMA_50')):
-            sma20, sma50 = float(last['SMA_20']), float(last['SMA_50'])
-            indicators_list.append({'indicator': 'Тренд', 'signal': 'positive' if sma20 > sma50 else 'negative', 'value': '↑ Рост' if sma20 > sma50 else '↓ Падение', 'description': 'Восходящий тренд' if sma20 > sma50 else 'Нисходящий тренд'})
-        
-        other_tf = '1h' if tf == '1d' else '1d'
-        other_days = 30 if other_tf == '1h' else 365
-        df_other = pipeline.update_data(ticker, other_tf, other_days)
-        indicators_other = indicators_list
-        if not df_other.empty:
-            df_other['SMA_20'] = calculate_sma(df_other['Close'], 20)
-            df_other['SMA_50'] = calculate_sma(df_other['Close'], 50)
-            df_other['RSI'] = calculate_rsi(df_other['Close'], 14)
-            df_other['MACD'], df_other['MACD_Signal'], df_other['MACD_Hist'] = calculate_macd(df_other['Close'])
-            df_other['BB_Upper'], df_other['BB_Middle'], df_other['BB_Lower'], df_other['BB_Width'] = calculate_bollinger_bands(df_other['Close'])
-            indicators_other = []
-            last_o = df_other.iloc[-1]
-            price_o = float(last_o['Close'])
-            if not pd.isna(last_o.get('SMA_20')):
-                sma20_o = float(last_o['SMA_20'])
-                indicators_other.append({'indicator': 'Цена vs SMA 20', 'signal': 'positive' if price_o > sma20_o else 'negative', 'value': 'Выше' if price_o > sma20_o else 'Ниже', 'description': 'Краткосрочный тренд ' + ('вверх' if price_o > sma20_o else 'вниз')})
-            if not pd.isna(last_o.get('RSI')):
-                rsi_o = float(last_o['RSI'])
-                indicators_other.append({'indicator': 'RSI (14)', 'signal': 'positive' if 30 < rsi_o < 70 else ('negative' if rsi_o > 70 else 'positive'), 'value': f'{rsi_o:.1f}', 'description': 'Умеренно бычий' if 50 < rsi_o < 70 else ('Перекупленность' if rsi_o > 70 else 'Перепроданность')})
-            if not pd.isna(last_o.get('MACD')) and not pd.isna(last_o.get('MACD_Signal')):
-                macd_o, signal_o = float(last_o['MACD']), float(last_o['MACD_Signal'])
-                indicators_other.append({'indicator': 'MACD', 'signal': 'positive' if macd_o > signal_o else 'negative', 'value': 'Выше Signal' if macd_o > signal_o else 'Ниже Signal', 'description': 'Бычий импульс' if macd_o > signal_o else 'Медвежий импульс'})
-            if not pd.isna(last_o.get('BB_Upper')) and not pd.isna(last_o.get('BB_Lower')):
-                bb_u, bb_l = float(last_o['BB_Upper']), float(last_o['BB_Lower'])
-                bb_r = bb_u - bb_l
-                if bb_r > 0:
-                    bb_p = (price_o - bb_l) / bb_r * 100
-                    indicators_other.append({'indicator': 'Bollinger Bands', 'signal': 'neutral', 'value': f'{bb_p:.0f}%', 'description': 'В середине канала'})
-            vol_o = float(last_o['Volume'])
-            avg_vol_o = df_other['Volume'].tail(20).mean()
-            indicators_other.append({'indicator': 'Объём', 'signal': 'positive' if vol_o > avg_vol_o * 1.5 else 'neutral', 'value': f'{vol_o/1000000:.1f}M', 'description': 'Высокая активность' if vol_o > avg_vol_o * 1.5 else 'Обычная активность'})
-            if not pd.isna(last_o.get('SMA_20')) and not pd.isna(last_o.get('SMA_50')):
-                indicators_other.append({'indicator': 'Тренд', 'signal': 'positive' if float(last_o['SMA_20']) > float(last_o['SMA_50']) else 'negative', 'value': '↑ Рост' if float(last_o['SMA_20']) > float(last_o['SMA_50']) else '↓ Падение', 'description': 'Восходящий тренд' if float(last_o['SMA_20']) > float(last_o['SMA_50']) else 'Нисходящий тренд'})
-        
-        return jsonify({
-            'ticker': ticker, 'price': price, 'change': round(change, 2),
-            'change_percent': round(change_percent, 2),
-            'volume': f'{volume/1000000:.1f}M', 'market_cap': '—',
-            'rsi': float(last['RSI']) if not pd.isna(last.get('RSI')) else 50,
-            'score': score, 'ai_prediction': ai_pred,
-            'price_history': price_history, 'rsi_history': rsi_history, 'macd_history': macd_history,
-            'signals_1d': indicators_list if tf == '1d' else indicators_other,
-            'signals_1h': indicators_other if tf == '1d' else indicators_list
-        })
-    except Exception as e:
-        print(f"❌ Ошибка в get_ticker: {e}")
-        import traceback; traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+def ticker_details(ticker):
+    result = details(ticker, request.args.get('tf', '1d'))
+    return response(result, 503 if 'error' in result else 200)
+
+
+@app.route('/api/chart/<ticker>/<tf>')
+def chart(ticker, tf):
+    result = details(ticker, tf)
+    return response(result if 'error' in result else result['price_history'], 503 if 'error' in result else 200)
+
+
+@app.route('/api/signals/<ticker>')
+def signals(ticker):
+    validate(ticker, '1d')
+    return response({tf: details(ticker, tf) for tf in ('1d', '1h')})
+
 
 @app.route('/api/screener')
-def get_screener():
-    try:
-        results = []
-        for ticker in ALL_TICKERS:
-            try:
-                df_1d = pipeline.update_data(ticker, '1d', 365)
-                df_1h = pipeline.update_data(ticker, '1h', 30)
-                if df_1d.empty or df_1h.empty:
-                    continue
-                from technical_analysis import calculate_sma, calculate_rsi, calculate_macd, calculate_bollinger_bands
-                for df in [df_1d, df_1h]:
-                    df['SMA_20'] = calculate_sma(df['Close'], 20)
-                    df['SMA_50'] = calculate_sma(df['Close'], 50)
-                    df['RSI'] = calculate_rsi(df['Close'], 14)
-                    df['MACD'], df['MACD_Signal'], df['MACD_Hist'] = calculate_macd(df['Close'])
-                    df['BB_Upper'], df['BB_Middle'], df['BB_Lower'], df['BB_Width'] = calculate_bollinger_bands(df['Close'])
-                sig_1d = SignalAnalyzer(df_1d).analyze_signals()
-                sig_1h = SignalAnalyzer(df_1h).analyze_signals()
-                if 'error' in sig_1d or 'error' in sig_1h:
-                    continue
-                total_pos = sig_1d['positive'] + sig_1h['positive']
-                total_neg = sig_1d['negative'] + sig_1h['negative']
-                total_neu = sig_1d['neutral'] + sig_1h['neutral']
-                total = total_pos + total_neg + total_neu
-                
-                # ИСПРАВЛЕННЫЙ РАСЧЕТ SCORE (может быть > 50 или < -50)
-                raw_score = (total_pos - total_neg) / total * 100 if total > 0 else 0
-                last_price = float(df_1h.iloc[-1]['Close'])
-                sma_20 = float(df_1h['Close'].rolling(20).mean().iloc[-1])
-                sma_50 = float(df_1h['Close'].rolling(50).mean().iloc[-1]) if len(df_1h) >= 50 else sma_20
-                
-                trend_bonus = 0
-                if last_price > sma_20 and sma_20 > sma_50: trend_bonus = 25
-                elif last_price < sma_20 and sma_20 < sma_50: trend_bonus = -25
-                elif last_price > sma_20: trend_bonus = 10
-                else: trend_bonus = -10
-                
-                score = round(max(-100, min(100, raw_score + trend_bonus)), 1)
-                
-                features = pipeline.get_features(df_1h)
-                ai = TradingAI(ticker, 8)
-                ai_pred_str, ai_conf = 'HOLD', 50
-                if ai.load() and not features.empty:
-                    try:
-                        ai_pred = ai.predict(features)
-                        ai_pred_str = ai_pred.get('prediction', 'HOLD')
-                        ai_conf = ai_pred.get('confidence', 50)
-                    except:
-                        smart_pred = generate_smart_prediction(df_1h, ticker)
-                        ai_pred_str = smart_pred['prediction']
-                        ai_conf = smart_pred['confidence']
-                else:
-                    smart_pred = generate_smart_prediction(df_1h, ticker)
-                    ai_pred_str = smart_pred['prediction']
-                    ai_conf = smart_pred['confidence']
-                
-                last_1h = df_1h.iloc[-1]
-                prev_1h = df_1h.iloc[-2] if len(df_1h) > 1 else last_1h
-                price = float(last_1h['Close'])
-                prev_price = float(prev_1h['Close'])
-                change = price - prev_price
-                change_pct = (change / prev_price) * 100 if prev_price > 0 else 0
-                macd_val = float(last_1h.get('MACD', 0)) if not pd.isna(last_1h.get('MACD')) else 0
-                macd_sig = float(last_1h.get('MACD_Signal', 0)) if not pd.isna(last_1h.get('MACD_Signal')) else 0
-                macd_signal = 'bullish' if macd_val > macd_sig else ('bearish' if macd_val < macd_sig else 'neutral')
-                
-                results.append({
-                    'ticker': ticker, 'name': TICKER_NAMES.get(ticker, ticker),
-                    'color': TICKER_COLORS.get(ticker, '#848e9c'),
-                    'logo': f"/static/images/logos/{ticker}.png",
-                    'score': score, 'positive': total_pos, 'negative': total_neg, 'neutral': total_neu,
-                    'forecast_1d': sig_1d.get('forecast_ru', '—'), 'forecast_1h': sig_1h.get('forecast_ru', '—'),
-                    'price': price, 'change': round(change, 2), 'change_percent': round(change_pct, 2),
-                    'rsi': round(float(last_1h.get('RSI', 50)), 1) if not pd.isna(last_1h.get('RSI')) else 50,
-                    'macd_signal': macd_signal, 'ai_prediction': ai_pred_str, 'ai_confidence': ai_conf,
-                    'volume': float(last_1h.get('Volume', 0))
-                })
-            except Exception as e:
-                print(f"⚠️  Ошибка для {ticker}: {e}")
-                continue
-        results.sort(key=lambda x: x['score'], reverse=True)
-        return jsonify(results)
-    except Exception as e:
-        print(f"❌ Ошибка в screener: {e}")
-        return jsonify({'error': str(e)}), 500
+def screener():
+    tf = request.args.get('tf', '1d')
+    validate('SBER', tf)
+    def row(ticker):
+        try:
+            item = details(ticker, tf)
+            item.pop('price_history', None)
+            return item
+        except Exception:
+            app.logger.exception('Screener failed for %s', ticker)
+            return {'ticker': ticker, 'name': TICKERS[ticker], 'error': 'Источник данных временно недоступен'}
+    # Bounded parallelism: a slow symbol does not serialize every other request.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        rows = list(pool.map(row, TICKERS))
+    return response(sorted(rows, key=lambda item: item.get('score', -101), reverse=True))
 
-_cached_news = None
-_last_news_update = 0
+
+def news():
+    with news_lock:
+        if not news_cache['checked'] or time.monotonic() - news_cache['checked'] > 900:
+            try:
+                items = fetch_all_news(limit=150)
+                if items:
+                    news_cache.update(items=items, updated=pd.Timestamp.now(tz='UTC').isoformat(), stale=False)
+                else:
+                    news_cache['stale'] = True
+            except Exception:
+                app.logger.exception('News refresh failed')
+                news_cache['stale'] = True
+            news_cache['checked'] = time.monotonic()
+        return dict(news_cache)
+
 
 @app.route('/api/news')
-def get_news():
-    global _cached_news, _last_news_update
-    import time
-    current_time = time.time()
-    
-    # Кэшируем на 15 минут
-    if _cached_news is None or (current_time - _last_news_update) > 900:
-        try:
-            print("\n" + "="*60)
-            print("📡 ЗАГРУЗКА НОВОСТЕЙ...")
-            print("="*60)
-            _cached_news = fetch_all_news(limit=150)
-            _last_news_update = current_time
-            print(f"\n✅ ВСЕГО ЗАГРУЖЕНО: {len(_cached_news)} новостей")
-            print(f"   Позитивных: {len([n for n in _cached_news if n['sentiment'] == 'positive'])}")
-            print(f"   Негативных: {len([n for n in _cached_news if n['sentiment'] == 'negative'])}")
-            print(f"   Нейтральных: {len([n for n in _cached_news if n['sentiment'] == 'neutral'])}")
-            print("="*60 + "\n")
-        except Exception as e:
-            print(f"❌ Критическая ошибка: {e}")
-            import traceback
-            traceback.print_exc()
-            _cached_news = []
-            
-    return jsonify(_cached_news)
+def all_news():
+    result = news()
+    return response({'items': result['items'], 'updated_at': result['updated'], 'stale': result['stale'], 'method': 'rules'})
+
 
 @app.route('/api/ticker/<ticker>/news')
-def get_ticker_news(ticker):
-    global _cached_news
-    if not _cached_news:
-        _cached_news = fetch_all_news(limit=150)
-    
-    # Фильтруем новости, где упоминается тикер (или его отрасль, или ALL)
-    ticker_news = [news for news in _cached_news if ticker in news.get('affects', [])]
-    
-    # Сортируем по силе влияния (абсолютное значение sentiment_score)
-    ticker_news.sort(key=lambda x: abs(x.get('sentiment_score', 0)), reverse=True)
-    
-    return jsonify(ticker_news[:5]) # Топ-5 самых важных новостей для дашборда
+def ticker_news(ticker):
+    validate(ticker, '1d')
+    result = news()
+    sector = TICKER_TO_SECTOR.get(ticker)
+    items = []
+    for item in result['items']:
+        affects = item.get('affects', [])
+        relevance = 'company' if ticker in affects else 'sector' if sector in affects else 'market' if 'ALL' in affects else None
+        if relevance:
+            items.append({**item, 'relevance': relevance})
+    return response({'items': items[:10], 'stale': result['stale'], 'updated_at': result['updated'], 'method': 'rules'})
+
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    app.run(host=os.getenv('TRADER_HOST', '127.0.0.1'), port=int(os.getenv('TRADER_PORT', '5001')), debug=False)

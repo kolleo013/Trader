@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import os
+import time
 
 class MOEXDataFetcher:
     """
@@ -34,23 +35,27 @@ class MOEXDataFetcher:
 
     def _fetch_and_parse(self, url: str, params: dict, ticker: str, is_currency: bool = False) -> pd.DataFrame:
         try:
-            response = self.session.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
-            
-            if 'candles' not in data:
+            rows = []
+            columns = None
+            # ISS returns paginated candles. Keep a finite upper bound and fail
+            # rather than silently accepting a truncated history.
+            deadline = time.monotonic() + 20
+            for page in range(100):
+                if time.monotonic() > deadline:
+                    raise TimeoutError("MOEX history refresh exceeded 20 seconds")
+                response = self.session.get(url, params={**params, 'start': len(rows)}, timeout=(3, 8))
+                response.raise_for_status()
+                candles = response.json().get('candles', {})
+                batch = candles.get('data', [])
+                if not batch:
+                    break
+                columns = candles['columns']
+                rows.extend(batch)
+            else:
+                raise ValueError("MOEX pagination exceeded safety limit")
+            if not rows:
                 return pd.DataFrame()
-            
-            candles_data = data['candles']
-            if 'columns' not in candles_data or 'data' not in candles_data:
-                return pd.DataFrame()
-            
-            columns = candles_data['columns']
-            rows = candles_data['data']
-            
-            if not rows or not isinstance(rows, (list, tuple)):
-                return pd.DataFrame()
-            
+
             df = pd.DataFrame(rows, columns=columns)
             
             if 'begin' in df.columns:

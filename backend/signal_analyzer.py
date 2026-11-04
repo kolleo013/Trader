@@ -68,12 +68,6 @@ class SignalAnalyzer:
         elif last['RSI'] < 30:
             positive_signals += 1
             signal_details.append({'indicator': f'RSI = {last["RSI"]:.1f}', 'signal': 'positive', 'description': 'Перепроданность'})
-        elif last['RSI'] > 60:
-            positive_signals += 1
-            signal_details.append({'indicator': f'RSI = {last["RSI"]:.1f}', 'signal': 'positive', 'description': 'Умеренно бычий'})
-        elif last['RSI'] < 40:
-            negative_signals += 1
-            signal_details.append({'indicator': f'RSI = {last["RSI"]:.1f}', 'signal': 'negative', 'description': 'Умеренно медвежий'})
         else:
             neutral_signals += 1
             signal_details.append({'indicator': f'RSI = {last["RSI"]:.1f}', 'signal': 'neutral', 'description': 'Нейтральная зона'})
@@ -90,7 +84,8 @@ class SignalAnalyzer:
             signal_details.append({'indicator': 'MACD = Signal', 'signal': 'neutral', 'description': 'Нейтрально'})
         
         # 5. Bollinger Bands
-        bb_position = (last['Close'] - last['BB_Lower']) / (last['BB_Upper'] - last['BB_Lower']) * 100
+        width = last['BB_Upper'] - last['BB_Lower']
+        bb_position = (last['Close'] - last['BB_Lower']) / width * 100 if width > 0 else 50
         if bb_position > 80:
             negative_signals += 1
             signal_details.append({'indicator': f'BB Position = {bb_position:.1f}%', 'signal': 'negative', 'description': 'У верхней границы (перекупленность)'})
@@ -105,18 +100,23 @@ class SignalAnalyzer:
         if 'Volume' in self.df.columns:
             avg_volume_20 = self.df['Volume'].tail(20).mean()
             if last['Volume'] > avg_volume_20 * 1.5:
-                positive_signals += 1
-                signal_details.append({'indicator': 'Объём выше среднего', 'signal': 'positive', 'description': 'Высокая активность'})
+                neutral_signals += 1
+                signal_details.append({'indicator': 'Объём выше среднего', 'signal': 'neutral', 'description': 'Высокая активность; направление определяется движением цены'})
             elif last['Volume'] < avg_volume_20 * 0.5:
-                negative_signals += 1
-                signal_details.append({'indicator': 'Объём ниже среднего', 'signal': 'negative', 'description': 'Низкая активность'})
+                neutral_signals += 1
+                signal_details.append({'indicator': 'Объём ниже среднего', 'signal': 'neutral', 'description': 'Низкая активность; проверьте ликвидность'})
             else:
                 neutral_signals += 1
                 signal_details.append({'indicator': 'Объём средний', 'signal': 'neutral', 'description': 'Нормальная активность'})
         
         # Итоговый прогноз
         total_signals = positive_signals + negative_signals + neutral_signals
-        bullish_score = (positive_signals - negative_signals) / total_signals * 100
+        # Group correlated indicators instead of giving the trend multiple votes.
+        votes = [1 if s['signal'] == 'positive' else -1 if s['signal'] == 'negative' else 0 for s in signal_details]
+        trend = (votes[0] + votes[1]) / 2
+        momentum = votes[3]
+        reversion = (votes[2] + votes[4]) / 2
+        bullish_score = (trend + momentum + reversion) / 3 * 100
         
         if bullish_score > 30:
             forecast = 'BULLISH'
@@ -137,6 +137,8 @@ class SignalAnalyzer:
             'neutral': neutral_signals,
             'total': total_signals,
             'bullish_score': bullish_score,
+            'score_method': 'equal_groups_trend_momentum_reversion',
+            'groups': {'trend': trend, 'momentum': momentum, 'reversion': reversion},
             'forecast': forecast,
             'forecast_ru': forecast_ru,
             'color': color,
