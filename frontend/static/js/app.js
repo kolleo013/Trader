@@ -221,7 +221,7 @@ function updateDashboard(data) {
   
   updateIndicators('1d', data.signals_1d); updateIndicators('1h', data.signals_1h); updateRecommendation(data);
 
-    updateIndicators('1d', data.signals_1d);
+  updateIndicators('1d', data.signals_1d);
   updateIndicators('1h', data.signals_1h);
   updateRecommendation(data);
   

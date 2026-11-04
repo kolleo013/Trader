@@ -456,19 +456,17 @@ def get_news():
 
 @app.route('/api/ticker/<ticker>/news')
 def get_ticker_news(ticker):
-    """Новости по конкретному тикеру"""
     global _cached_news
-    
     if not _cached_news:
-        # Если кэш пуст — загружаем
         _cached_news = fetch_all_news(limit=150)
     
+    # Фильтруем новости, где упоминается тикер (или его отрасль, или ALL)
     ticker_news = [news for news in _cached_news if ticker in news.get('affects', [])]
+    
+    # Сортируем по силе влияния (абсолютное значение sentiment_score)
     ticker_news.sort(key=lambda x: abs(x.get('sentiment_score', 0)), reverse=True)
     
-    print(f"📰 Новости для {ticker}: найдено {len(ticker_news)}")
-    
-    return jsonify(ticker_news[:10])
+    return jsonify(ticker_news[:5]) # Топ-5 самых важных новостей для дашборда
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)
